@@ -1,8 +1,8 @@
 # Default ignored files
 /shelf/
 /workspace.xml
-.idea/*
-__pycache__/*
-generated_images/*
-inception_model_info/*
-wandb/*
+/.idea/
+/__pycache__/
+/generated_images/
+/inception_model_info/
+/wandb/
