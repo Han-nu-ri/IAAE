@@ -1,11 +1,18 @@
 import itertools
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 import generative_model_score
+import matplotlib
+import wandb
+from torch.autograd import Variable
+import tqdm
+import os
+import hashlib
+from PIL import Image
+import matplotlib.pyplot as plt
+import data_helper
+matplotlib.use('Agg')
 
 
 class Encoder(nn.Module):
@@ -93,38 +100,6 @@ def sample_image(encoder, decoder, x):
     return decoder(z)
 
 
-def get_celebA_dataset(batch_size):
-    import torchvision
-    from torchvision import transforms
-    image_path = "../data/"
-    transformation = transforms.Compose([
-        transforms.Resize((16, 16)),
-        transforms.ToTensor(),
-    ])
-    train_dataset = torchvision.datasets.ImageFolder(image_path + 'celeba', transformation)
-    num_train = len(train_dataset)
-    indices = list(range(num_train))
-    train_indices, test_indices = indices[:10000], indices[200000:]
-    train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
-    test_sampler = torch.utils.data.SubsetRandomSampler(test_indices)
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler)
-    test_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, sampler=test_sampler)
-    return train_loader, test_loader
-
-
-def get_cifar1_dataset(batch_size):
-    import torchvision.transforms as transforms
-    import torchvision
-    dataset = torchvision.datasets.CIFAR10(root='../../20210306_gan/dataset',  # download=True,
-                                           transform=transforms.Compose([
-                                               transforms.Resize((16, 16)),
-                                               transforms.ToTensor(),
-                                               transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-                                           ]))
-    data = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-    return data
-
-
 def update_autoencoder(ae_optimizer, X_train_batch, encoder, decoder):
     ae_optimizer.zero_grad()
     z_posterior = encoder(X_train_batch)
@@ -157,71 +132,18 @@ def update_generator(g_optimizer, X_train_batch, encoder, discriminator):
     return g_loss.data
 
 
-def save_losses(epochs, r_losses, d_losses, g_losses):
-    X = range(1, epochs + 1)
-    fig = plt.figure(figsize=(30, 30))
-    plt.subplot(3, 1, 1)
-    plt.title("r_losses")
-    plt.plot(X, r_losses, color="blue", linestyle="-", label="r_losses")
-    plt.subplot(3, 1, 2)
-    plt.title("g_losses")
-    plt.plot(X, g_losses, color="purple", linestyle="-", label="g_losses")
-    plt.subplot(3, 1, 3)
-    plt.title("d_losses")
-    plt.plot(X, d_losses, color="red", linestyle="-", label="d_losses")
-    plt.savefig('aae_celebA/losses.png')
-    plt.close()
-
-
-def save_images(each_epoch, images):
-    images = images.numpy()
-    images = np.transpose(images, (0, 2, 3, 1))
-    plt.figure(figsize=(5, 5))
-    for i in range(images.shape[0]):
-        plt.subplot(5, 5, i + 1)
-        plt.imshow((images[i, :, :, :] * 255).astype('uint8'))
-        plt.axis('off')
-    plt.savefig('aae_celebA/image_at_epoch_{:04d}.png'.format(each_epoch + 1))
-    plt.close()
-
-
-def save_scores_and_print(current_epoch, epochs, r_loss, d_loss, g_loss, precision, recall, fid, inception_score_real,
-                          inception_score_fake, density, coverage):
-    f = open("./logs/aae_celebA/generative_scores.txt", "a")
-    f.write("%d %f %f %f %f %f %f %f %f %f %f\n" % (
-    current_epoch, r_loss, d_loss, g_loss, precision, recall, fid, inception_score_real, inception_score_fake, density, coverage))
-    f.close()
-    print(
-        "[Epoch %d/%d] [R loss: %f] [D loss: %f] [G loss: %f] [precision: %f] [recall: %f] [fid: %f] [inception_score_real: %f] [inception_score_fake: %f] [density: %f] [coverage: %f]"
-        % (current_epoch, epochs, r_loss, d_loss, g_loss, precision, recall, fid, inception_score_real,
-           inception_score_fake, density, coverage))
-
-
-def main():
+def load_inception_model(train_loader):
     # load real images info or generate real images info
     inception_model_score = generative_model_score.GenerativeModelScore()
     inception_model_score.lazy_mode(True)
-
-    from torch.autograd import Variable
-    import tqdm
-    import os
-
-    batch_size = 32
-    epochs = 1000
-    train_loader, test_loader = get_celebA_dataset(batch_size)
-    #train_loader = get_cifar1_dataset(batch_size)
-    latent_dim = 10
-    image_shape = [3, 16, 16]
-
-    import hashlib
     real_images_info_file_name = hashlib.md5(str(train_loader.dataset).encode()).hexdigest() + '.pickle'
+    os.makedirs('inception_model_info', exist_ok=True)
     if os.path.exists('./inception_model_info/' + real_images_info_file_name):
         print("Using generated real image info.")
         print(train_loader.dataset)
         inception_model_score.load_real_images_info('./inception_model_info/' + real_images_info_file_name)
     else:
         inception_model_score.model_to('cuda')
-
         # put real image
         for each_batch in train_loader:
             X_train_batch = each_batch[0]
@@ -234,81 +156,118 @@ def main():
         inception_model_score.save_real_images_info('./inception_model_info/' + real_images_info_file_name)
         # offload inception_model
         inception_model_score.model_to('cpu')
+    inception_model_score.freeze_layers()
+    return inception_model_score
 
+
+def log_index_with_inception_model(d_loss, decoder, discriminator, encoder, g_loss, i, inception_model_score, r_loss):
+    # offload all GAN model to cpu and onload inception model to gpu
+    encoder = encoder.to('cpu')
+    decoder = decoder.to('cpu')
+    discriminator = discriminator.to('cpu')
+    inception_model_score.model_to('cuda')
+    # generate fake images info
+    inception_model_score.lazy_forward(batch_size=32, device='cuda', fake_forward=True)
+    inception_model_score.calculate_fake_image_statistics()
+    metrics = inception_model_score.calculate_generative_score()
+    # onload all GAN model to gpu and offload inception model to cpu
+    inception_model_score.model_to('cpu')
+    encoder = encoder.to('cuda')
+    decoder = decoder.to('cuda')
+    discriminator = discriminator.to('cuda')
+    precision, recall, fid, inception_score_real, inception_score_fake, density, coverage = \
+        metrics['precision'], metrics['recall'], metrics['fid'], metrics['real_is'], metrics['fake_is'], \
+        metrics['density'], metrics['coverage']
+    wandb.log({"r_loss": r_loss,
+               "d_loss": d_loss,
+               "g_loss": g_loss,
+               "precision": precision,
+               "recall": recall,
+               "fid": fid,
+               "inception_score_real": inception_score_real,
+               "inception_score_fake": inception_score_fake,
+               "density": density,
+               "coverage": coverage},
+              step=i)
+    inception_model_score.clear_fake()
+    return decoder, discriminator, encoder
+
+
+def get_model_and_optimizer(image_shape, latent_dim):
     encoder = Encoder(latent_dim, image_shape).cuda()
     decoder = Decoder(latent_dim, image_shape).cuda()
     discriminator = Discriminator(latent_dim).cuda()
     ae_optimizer = torch.optim.Adam(itertools.chain(encoder.parameters(), decoder.parameters()), lr=1e-4)
     d_optimizer = torch.optim.Adam(discriminator.parameters(), lr=1e-4)
     g_optimizer = torch.optim.Adam(encoder.parameters(), lr=1e-4)
+    return ae_optimizer, d_optimizer, decoder, discriminator, encoder, g_optimizer
 
-    r_losses = []
-    d_losses = []
-    g_losses = []
-    precisions = []
-    recalls = []
-    fids = []
-    inception_scores_real = []
-    inception_scores_fake = []
-    densities = []
-    coverages = []
 
+def save_images(each_epoch, images):
+    images = images.numpy()
+    images = np.transpose(images, (0, 2, 3, 1))
+    folder_name = 'generated_images/aae_face'
+    os.makedirs(folder_name, exist_ok=True)
+    plt.figure(figsize=(5, 5))
+    for i in range(images.shape[0]):
+        plt.subplot(5, 5, i + 1)
+        plt.imshow((images[i, :, :, :] * 255).astype('uint8'))
+        plt.axis('off')
+    generated_image_file = folder_name + '/image_at_epoch_' + str(each_epoch + 1) + '.png'
+    plt.savefig(generated_image_file)
+    plt.close()
+    return Image.open(generated_image_file)
+
+
+def generate_image(decoder, encoder, i, sampled_images, train_loader):
+    for each_batch in tqdm.tqdm(train_loader):
+        X_train_batch = Variable(each_batch[0]).cuda()
+        sampled_images = sample_image(encoder, decoder, X_train_batch).detach().cpu()
+        break
+    generated_image_file = save_images(i, sampled_images.data[0:25].cpu())
+    wandb.log({'image': wandb.Image(generated_image_file, caption='%s_epochs' % i)}, step=i)
+
+
+def main():
+    batch_size = 32
+    epochs = 100
+    image_size = 16
+    train_loader, test_loader = data_helper.get_celebA_dataset(batch_size, image_size)
+    latent_dim = 10
+    save_image_interval = loss_calculation_interval = 5
+    image_shape = [3, image_size, image_size]
+    wandb.login()
+    wandb.init(project="AAE",
+               config={
+                   "batch_size": batch_size,
+                   "epochs": epochs,
+                   "img_size": image_size,
+                   "save_image_interval": save_image_interval,
+                   "loss_calculation_interval": loss_calculation_interval,
+                   "latent_dim": latent_dim,
+               })
+    inception_model_score = load_inception_model(train_loader)
+
+    ae_optimizer, d_optimizer, decoder, discriminator, encoder, g_optimizer = get_model_and_optimizer(image_shape,
+                                                                                                      latent_dim)
     for i in range(0, epochs):
-        batch_count = 0
         for each_batch in tqdm.tqdm(train_loader):
-            batch_count += 1
             X_train_batch = Variable(each_batch[0]).cuda()
             r_loss = update_autoencoder(ae_optimizer, X_train_batch, encoder, decoder)
             d_loss = update_discriminator(d_optimizer, X_train_batch, encoder, discriminator, latent_dim)
             g_loss = update_generator(g_optimizer, X_train_batch, encoder, discriminator)
 
-            if (i + 1) % 10 == 0:
+            if i % loss_calculation_interval == 0:
                 sampled_images = sample_image(encoder, decoder, X_train_batch).detach().cpu()
                 inception_model_score.put_fake(sampled_images)
 
-        if (i+1) % 10 != 0:
-            continue
+        if i % save_image_interval == 0:
+            generate_image(decoder, encoder, i, sampled_images, train_loader)
 
-        # offload all GAN model to cpu and onload inception model to gpu
-        encoder = encoder.to('cpu')
-        decoder = decoder.to('cpu')
-        discriminator = discriminator.to('cpu')
-        inception_model_score.model_to('cuda')
-
-        # generate fake images info
-        inception_model_score.lazy_forward(batch_size=32, device='cuda', fake_forward=True)
-        inception_model_score.calculate_fake_image_statistics()
-        metrics = inception_model_score.calculate_generative_score()
-        inception_model_score.clear_fake()
-
-        # onload all GAN model to gpu and offload inception model to cpu
-        inception_model_score.model_to('cpu')
-        encoder = encoder.to('cuda')
-        decoder = decoder.to('cuda')
-        discriminator = discriminator.to('cuda')
-
-        for each_batch in tqdm.tqdm(train_loader):
-            X_train_batch = Variable(each_batch[0]).cuda()
-            sampled_images = sample_image(encoder, decoder, X_train_batch).detach().cpu()
-            break
-        save_images(i, sampled_images.data[0:25].cpu())
-        precision, recall, fid, inception_score_real, inception_score_fake, density, coverage = \
-            metrics['precision'], metrics['recall'], metrics['fid'], metrics['real_is'], metrics['fake_is'], metrics[
-                'density'], metrics['coverage']
-
-        r_losses.append(r_loss)
-        d_losses.append(d_loss)
-        g_losses.append(g_loss)
-        precisions.append(precision)
-        recalls.append(recall)
-        fids.append(fid)
-        inception_scores_real.append(inception_score_real)
-        inception_scores_fake.append(inception_score_fake)
-        densities.append(density)
-        coverages.append(coverage)
-        save_scores_and_print(i + 1, epochs, r_loss, d_loss, g_loss, precision, recall, fid, inception_score_real,
-                              inception_score_fake, density, coverage)
-    save_losses(epochs, r_losses, d_losses, g_losses)
+        if i % loss_calculation_interval == 0:
+            decoder, discriminator, encoder = log_index_with_inception_model(d_loss, decoder, discriminator, encoder,
+                                                                             g_loss, i, inception_model_score, r_loss)
+    wandb.finish()
 
 
 if __name__ == "__main__":
