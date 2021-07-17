@@ -233,9 +233,9 @@ def log_z_posterior(encoder, i):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='',
+    parser.add_argument('--dataset', type=str,
                         choices=['ffhq32', 'ffhq64', 'cifar', 'mnist', 'mnist_fashion', 'emnist'])
-    parser.add_argument('--distribution', type=str, default='',
+    parser.add_argument('--distribution', type=str,
                         choices=['standard_normal', 'uniform', 'gamma', 'beta', 'chi', 'dirichlet', 'laplace'])
     args = parser.parse_args()
     batch_size = 1024

@@ -1,10 +1,10 @@
-python aae.py --dataset=ffhq32 --distribution=standard_normal
-python aae.py --dataset=ffhq32 --distribution=uniform
-python aae.py --dataset=ffhq32 --distribution=gamma
-python aae.py --dataset=ffhq32 --distribution=beta
-python aae.py --dataset=ffhq32 --distribution=chi
-python aae.py --dataset=ffhq32 --distribution=dirichlet
-python aae.py --dataset=ffhq32 --distribution=laplace
+python aae_for_various_prior.py --dataset ffhq32 --distribution=standard_normal
+python aae_for_various_prior.py --dataset=ffhq32 --distribution=uniform
+python aae_for_various_prior.py --dataset=ffhq32 --distribution=gamma
+python aae_for_various_prior.py --dataset=ffhq32 --distribution=beta
+python aae_for_various_prior.py --dataset=ffhq32 --distribution=chi
+python aae_for_various_prior.py --dataset=ffhq32 --distribution=dirichlet
+python aae_for_various_prior.py --dataset=ffhq32 --distribution=laplace
 
 REM python aae.py --dataset=ffhq64
 REM python aae.py --dataset=cifar
