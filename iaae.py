@@ -10,6 +10,7 @@ import tqdm
 import os
 import hashlib
 from PIL import Image
+import argparse
 import matplotlib.pyplot as plt
 import data_helper
 matplotlib.use('Agg')
@@ -100,16 +101,23 @@ def sample_image(encoder, decoder, x):
     return decoder(z)
 
 
+def inference_image(decoder, batch_size, latent_dim):
+    z = torch.randn(batch_size, latent_dim).cuda()
+    return decoder(z)
+
+
 def update_autoencoder(ae_optimizer, X_train_batch, encoder, decoder, inception_model_score, each_epoch, batch_count):
     ae_optimizer.zero_grad()
     z_posterior = encoder(X_train_batch)
     X_decoded = decoder(z_posterior)
     l1_loss = torch.nn.L1Loss()
-    X_train_batch_feature = inception_model_score.get_hidden_representation(X_train_batch.cpu(), real=True, epoch=each_epoch, batch=batch_count)
-    X_decoded_feature = inception_model_score.get_hidden_representation(X_decoded.cpu())
+    #X_train_batch_feature = inception_model_score.get_hidden_representation(X_train_batch.cpu(), real=True, epoch=each_epoch, batch=batch_count)
+    #X_decoded_feature = inception_model_score.get_hidden_representation(X_decoded.cpu())
+    X_train_batch_feature = z_posterior
+    X_decoded_feature = encoder(X_decoded)
     featurewise_loss = l1_loss(X_decoded_feature, X_train_batch_feature)
     pixelwise_loss = l1_loss(X_decoded, X_train_batch)
-    r_loss = 0.9 * pixelwise_loss + 0.1 * featurewise_loss
+    r_loss = 0.95 * pixelwise_loss + 0.05 * featurewise_loss
     r_loss.backward()
     ae_optimizer.step()
     return r_loss
@@ -223,7 +231,7 @@ def save_images(each_epoch, images):
     return Image.open(generated_image_file)
 
 
-def generate_image(decoder, encoder, i, sampled_images, train_loader):
+def generate_image(decoder, encoder, i, train_loader):
     for each_batch in tqdm.tqdm(train_loader):
         X_train_batch = Variable(each_batch[0]).cuda()
         sampled_images = sample_image(encoder, decoder, X_train_batch).detach().cpu()
@@ -233,10 +241,29 @@ def generate_image(decoder, encoder, i, sampled_images, train_loader):
 
 
 def main():
-    batch_size = 32
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default='',
+                        choices=['ffhq32', 'ffhq64', 'cifar', 'mnist', 'mnist_fashion', 'emnist'])
+    args = parser.parse_args()
+    batch_size = 1024
     epochs = 100
     image_size = 32
-    train_loader, test_loader = data_helper.get_ffhq_thumbnails(batch_size, image_size)
+    if args.dataset == 'ffhq32':
+        train_loader, test_loader = data_helper.get_ffhq_thumbnails(batch_size, image_size)
+    elif args.dataset == 'ffhq64':
+        batch_size = 256
+        image_size = 64
+        train_loader, test_loader = data_helper.get_ffhq_thumbnails(batch_size, image_size)
+    elif args.dataset == 'cifar':
+        train_loader, test_loader = data_helper.get_cifar_dataset(batch_size, image_size)
+    elif args.dataset == 'emnist':
+        train_loader, test_loader = data_helper.get_e_mnist(batch_size, image_size)
+    elif args.dataset == 'mnist':
+        train_loader, test_loader = data_helper.get_mnist(batch_size, image_size)
+    elif args.dataset == 'mnist_fashion':
+        train_loader, test_loader = data_helper.get_fashion_mnist(batch_size, image_size)
+    else:
+        train_loader, test_loader = data_helper.get_celebA_dataset(batch_size, image_size)
     latent_dim = 10
     save_image_interval = loss_calculation_interval = 5
     image_shape = [3, image_size, image_size]
@@ -265,11 +292,14 @@ def main():
             batch_count += 1
 
             if i % loss_calculation_interval == 0:
-                sampled_images = sample_image(encoder, decoder, X_train_batch).detach().cpu()
+                # 위 주석의 방법은 X_train_batch를 참조하여 정규분포의 mu와 sigma를 선정
+                #sampled_images = sample_image(encoder, decoder, X_train_batch).detach().cpu()
+                # 아래 방법은 randomly generate
+                sampled_images = inference_image(decoder, batch_size, latent_dim).detach().cpu()
                 inception_model_score.put_fake(sampled_images)
 
         if i % save_image_interval == 0:
-            generate_image(decoder, encoder, i, sampled_images, train_loader)
+            generate_image(decoder, encoder, i, train_loader)
 
         if i % loss_calculation_interval == 0:
             decoder, discriminator, encoder = log_index_with_inception_model(d_loss, decoder, discriminator, encoder,
