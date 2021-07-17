@@ -1,13 +1,13 @@
-python iaae.py --dataset=ffhq32
-python iaae.py --dataset=ffhq64
-python iaae.py --dataset=cifar
-python iaae.py --dataset=emnist
-python iaae.py --dataset=mnist
-python iaae.py --dataset=mnist_fashion
+python aae.py --dataset=ffhq32 --distribution=standard_normal
+python aae.py --dataset=ffhq32 --distribution=uniform
+python aae.py --dataset=ffhq32 --distribution=gamma
+python aae.py --dataset=ffhq32 --distribution=beta
+python aae.py --dataset=ffhq32 --distribution=chi
+python aae.py --dataset=ffhq32 --distribution=dirichlet
+python aae.py --dataset=ffhq32 --distribution=laplace
 
-python aae.py --dataset=ffhq32
-python aae.py --dataset=ffhq64
-python aae.py --dataset=cifar
-python aae.py --dataset=emnist
-python aae.py --dataset=mnist
-python aae.py --dataset=mnist_fashion
+REM python aae.py --dataset=ffhq64
+REM python aae.py --dataset=cifar
+REM python aae.py --dataset=emnist
+REM python aae.py --dataset=mnist
+REM python aae.py --dataset=mnist_fashion

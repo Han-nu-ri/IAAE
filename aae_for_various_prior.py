@@ -13,6 +13,7 @@ import hashlib
 from PIL import Image
 import matplotlib.pyplot as plt
 import data_helper
+import prior_factory
 matplotlib.use('Agg')
 
 
@@ -27,27 +28,18 @@ class Encoder(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
         )
 
-        self.mu = nn.Linear(64, latent_dim)
-        self.sigma = nn.Linear(64, latent_dim)
+        self.z_posterior = nn.Linear(64, latent_dim)
         self.latent_dim = latent_dim
 
     def forward(self, x):
         x_flat = x.view(x.shape[0], -1)
-        mu, sigma = self.encode(x_flat)
-        z_posterior = self.reparameterize(mu, sigma)
+        z_posterior = self.encode(x_flat)
         return z_posterior
 
     def encode(self, x):
         x = self.model(x)
-        mu = self.mu(x)
-        sigma = self.sigma(x)
-        return mu, sigma
-
-    def reparameterize(self, mu, sigma):
-        from torch.autograd import Variable
-        batch_size = mu.size(0)
-        eps = Variable(torch.FloatTensor(np.random.normal(0, 1, (batch_size, self.latent_dim)))).cuda()
-        return eps * sigma + mu
+        z_posterior = self.z_posterior(x)
+        return z_posterior
 
 
 class Decoder(nn.Module):
@@ -101,8 +93,8 @@ def sample_image(encoder, decoder, x):
     return decoder(z)
 
 
-def inference_image(decoder, batch_size, latent_dim):
-    z = torch.randn(batch_size, latent_dim).cuda()
+def inference_image(decoder, batch_size, latent_dim, distribution):
+    z = torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim)).cuda()
     return decoder(z)
 
 
@@ -117,11 +109,10 @@ def update_autoencoder(ae_optimizer, X_train_batch, encoder, decoder):
     return r_loss
 
 
-def update_discriminator(d_optimizer, X_train_batch, encoder, discriminator, latent_dim):
+def update_discriminator(d_optimizer, X_train_batch, encoder, discriminator, latent_dim, distribution):
     d_optimizer.zero_grad()
     batch_size = X_train_batch.size(0)
-    # TODO: 아래 z_prior를 input args에 따라 다르게 sampling 되도록 구현 필요
-    z_prior = Variable(torch.FloatTensor(np.random.normal(0, 1, (batch_size, latent_dim)))).cuda()
+    z_prior = Variable(torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))).cuda()
     z_posterior = encoder(X_train_batch)
     d_loss = -torch.mean(torch.log(discriminator(z_prior)) + torch.log(1 - discriminator(z_posterior)))
     d_loss.backward()
@@ -234,17 +225,18 @@ def generate_image(decoder, encoder, i, train_loader):
     wandb.log({'image': wandb.Image(generated_image_file, caption='%s_epochs' % i)}, step=i)
 
 
-def log_mu_and_sigma(encoder, i):
-    wandb.log({"mu": wandb.Histogram(np.average(encoder.mu.weight.data.cpu().numpy(), axis=1)),
-               "sigma": wandb.Histogram(np.average(encoder.sigma.weight.data.cpu().numpy(), axis=1))}, step=i)
-    wandb.log({"mu_avg": np.average(encoder.mu.weight.data.cpu().numpy()),
-               "sigma_avg": np.average(encoder.sigma.weight.data.cpu().numpy())}, step=i)
+def log_z_posterior(encoder, i):
+    wandb.log({"z_posterior": wandb.Histogram(np.average(encoder.z_posterior.weight.data.cpu().numpy(), axis=1))},
+              step=i)
+    wandb.log({"z_posterior_avg": np.average(encoder.z_posterior.weight.data.cpu().numpy())}, step=i)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default='',
                         choices=['ffhq32', 'ffhq64', 'cifar', 'mnist', 'mnist_fashion', 'emnist'])
+    parser.add_argument('--distribution', type=str, default='',
+                        choices=['standard_normal', 'uniform', 'gamma', 'beta', 'chi', 'dirichlet', 'laplace'])
     args = parser.parse_args()
     batch_size = 1024
     epochs = 200
@@ -289,14 +281,15 @@ def main():
         for each_batch in tqdm.tqdm(train_loader):
             X_train_batch = Variable(each_batch[0]).cuda()
             r_loss = update_autoencoder(ae_optimizer, X_train_batch, encoder, decoder)
-            d_loss = update_discriminator(d_optimizer, X_train_batch, encoder, discriminator, latent_dim)
+            d_loss = update_discriminator(d_optimizer, X_train_batch, encoder, discriminator, latent_dim,
+                                          args.distribution)
             g_loss = update_generator(g_optimizer, X_train_batch, encoder, discriminator)
 
             if i % loss_calculation_interval == 0:
                 if flag_use_mu_and_sigma_of_train_data:
                     sampled_images = sample_image(encoder, decoder, X_train_batch).detach().cpu()
                 else:
-                    sampled_images = inference_image(decoder, batch_size, latent_dim).detach().cpu()
+                    sampled_images = inference_image(decoder, batch_size, latent_dim, args.distribution).detach().cpu()
                 if flag_log_index_with_inceptiom_module:
                     inception_model_score.put_fake(sampled_images)
 
@@ -307,7 +300,7 @@ def main():
             if flag_log_index_with_inceptiom_module:
                 decoder, discriminator, encoder = log_index_with_inception_model(d_loss, decoder, discriminator, encoder,
                                                                                  g_loss, i, inception_model_score, r_loss)
-            log_mu_and_sigma(encoder, i)
+            log_z_posterior(encoder, i)
 
     wandb.finish()
 
