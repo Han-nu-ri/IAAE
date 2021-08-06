@@ -166,7 +166,7 @@ def log_index_with_inception_model(d_loss, decoder, discriminator, encoder, g_lo
     # generate fake images info
     inception_model_score.lazy_forward(batch_size=32, device='cuda', fake_forward=True)
     inception_model_score.calculate_fake_image_statistics()
-    metrics = inception_model_score.calculate_generative_score()
+    metrics, feature_pca_plot = inception_model_score.calculate_generative_score(feature_pca_plot=True)
     # onload all GAN model to gpu and offload inception model to cpu
     inception_model_score.model_to('cpu')
     encoder = encoder.to('cuda')
@@ -175,7 +175,8 @@ def log_index_with_inception_model(d_loss, decoder, discriminator, encoder, g_lo
     precision, recall, fid, inception_score_real, inception_score_fake, density, coverage = \
         metrics['precision'], metrics['recall'], metrics['fid'], metrics['real_is'], metrics['fake_is'], \
         metrics['density'], metrics['coverage']
-    wandb.log({"r_loss": r_loss,
+    wandb.log({'IsNet feature': wandb.Image(feature_pca_plot),
+               "r_loss": r_loss,
                "d_loss": d_loss,
                "g_loss": g_loss,
                "precision": precision,

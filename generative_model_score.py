@@ -4,6 +4,7 @@ from scipy import linalg
 import numpy as np
 import prdc
 import pickle
+import matplotlib.pyplot as plt
 
 
 class GenerativeModelScore:
@@ -243,7 +244,7 @@ class GenerativeModelScore:
         self.fake_feature = None
         self.fake_mu, self.fake_sigma = None, None
 
-    def calculate_generative_score(self):
+    def calculate_generative_score(self, feature_pca_plot=False):
         fid = self.calculate_frechet_distance(self.real_mu, self.real_sigma, self.fake_mu, self.fake_sigma)
         real_pick = np.random.permutation(self.real_feature_np)[:10000]
         fake_pick = np.random.permutation(self.fake_feature_np)[:10000]
@@ -251,7 +252,26 @@ class GenerativeModelScore:
         metrics['fid'] = fid
         metrics['real_is'] = self.real_inception_score
         metrics['fake_is'] = self.fake_inception_score
-        return metrics
+
+        if feature_pca_plot:
+            plt.clf()
+            real = torch.tensor(real_pick)
+            fake = torch.tensor(fake_pick)
+
+            real_fake = torch.cat([real, fake])
+
+            U, S, V = torch.pca_lowrank(real_fake)
+            real_pca2 = torch.matmul(real, V[:, :2])
+            fake_pca2 = torch.matmul(fake, V[:, :2])
+
+            plt.scatter(fake_pca2[:, 0], fake_pca2[:, 1], label='fake', alpha=0.6, s=0.1)
+            plot = plt.scatter(real_pca2[:, 0], real_pca2[:, 1], label='real', alpha=0.6, s=0.1)
+            plt.legend()
+            plt.xlabel('pca dim1')
+            plt.ylabel('pca dim2')
+            return metrics, plot
+        else:
+            return metrics
 
     def analysis_softmax_and_feature(self, images):
         return self.inception_model(images)
