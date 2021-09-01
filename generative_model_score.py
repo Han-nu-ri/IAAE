@@ -261,15 +261,15 @@ class GenerativeModelScore:
             real_fake = torch.cat([real, fake])
 
             U, S, V = torch.pca_lowrank(real_fake)
-            real_pca2 = torch.matmul(real, V[:, :2])
-            fake_pca2 = torch.matmul(fake, V[:, :2])
+            real_pca = torch.matmul(real, V[:, :2])
+            fake_pca = torch.matmul(fake, V[:, :2])
 
-            plt.scatter(fake_pca2[:, 0], fake_pca2[:, 1], label='fake', alpha=0.6, s=0.1)
-            plot = plt.scatter(real_pca2[:, 0], real_pca2[:, 1], label='real', alpha=0.6, s=0.1)
+            plt.scatter(fake_pca[:, 0], fake_pca[:, 1], label='fake', alpha=0.6, s=0.1)
+            plot = plt.scatter(real_pca[:, 0], real_pca[:, 1], label='real', alpha=0.6, s=0.1)
             plt.legend()
             plt.xlabel('pca dim1')
             plt.ylabel('pca dim2')
-            return metrics, plot
+            return metrics, plot, real_pca, fake_pca
         else:
             return metrics
 

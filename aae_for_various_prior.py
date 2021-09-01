@@ -1,6 +1,7 @@
 import argparse
 import itertools
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import generative_model_score
@@ -157,6 +158,14 @@ def load_inception_model(train_loader):
     return inception_model_score
 
 
+def write_pca_data(dataset, distribution, epoch, real_pca, fake_pca):
+    folder_name = 'pca_data/'
+    os.makedirs(folder_name, exist_ok=True)
+    pca_df = pd.DataFrame({"real_pca_x": real_pca[:, 0], "real_pca_y": real_pca[:, 1],
+                           "fake_pca_x": fake_pca[:, 0], "fake_pca_y": fake_pca[:, 1]})
+    pca_df.to_csv(f"{folder_name}{dataset}_{distribution}_{epoch}_pca_data.csv")
+
+
 def log_index_with_inception_model(d_loss, decoder, discriminator, encoder, g_loss, i, inception_model_score, r_loss):
     # offload all GAN model to cpu and onload inception model to gpu
     encoder = encoder.to('cpu')
@@ -166,7 +175,8 @@ def log_index_with_inception_model(d_loss, decoder, discriminator, encoder, g_lo
     # generate fake images info
     inception_model_score.lazy_forward(batch_size=32, device='cuda', fake_forward=True)
     inception_model_score.calculate_fake_image_statistics()
-    metrics, feature_pca_plot = inception_model_score.calculate_generative_score(feature_pca_plot=True)
+    metrics, feature_pca_plot, real_pca, fake_pca = \
+        inception_model_score.calculate_generative_score(feature_pca_plot=True)
     # onload all GAN model to gpu and offload inception model to cpu
     inception_model_score.model_to('cpu')
     encoder = encoder.to('cuda')
@@ -188,7 +198,7 @@ def log_index_with_inception_model(d_loss, decoder, discriminator, encoder, g_lo
                "coverage": coverage},
               step=i)
     inception_model_score.clear_fake()
-    return decoder, discriminator, encoder
+    return decoder, discriminator, encoder, real_pca, fake_pca
 
 
 def get_model_and_optimizer(image_shape, latent_dim):
@@ -204,7 +214,7 @@ def get_model_and_optimizer(image_shape, latent_dim):
 def save_images(each_epoch, images):
     images = images.numpy()
     images = np.transpose(images, (0, 2, 3, 1))
-    folder_name = 'generated_images/aae_face'
+    folder_name = 'generated_images'
     os.makedirs(folder_name, exist_ok=True)
     plt.figure(figsize=(5, 5))
     for i in range(images.shape[0]):
@@ -260,7 +270,7 @@ def main():
         train_loader, test_loader = data_helper.get_fashion_mnist(batch_size, image_size)
     else:
         train_loader, test_loader = data_helper.get_celebA_dataset(batch_size, image_size)
-    latent_dim = 10
+    latent_dim = 100
     save_image_interval = loss_calculation_interval = 5
     image_shape = [3, image_size, image_size]
     wandb.login()
@@ -299,10 +309,14 @@ def main():
 
         if i % loss_calculation_interval == 0:
             if flag_log_index_with_inceptiom_module:
-                decoder, discriminator, encoder = log_index_with_inception_model(d_loss, decoder, discriminator, encoder,
-                                                                                 g_loss, i, inception_model_score, r_loss)
+                decoder, discriminator, encoder, real_pca, fake_pca = \
+                    log_index_with_inception_model(d_loss, decoder, discriminator, encoder, g_loss, i,
+                                                   inception_model_score, r_loss)
+                write_pca_data(args.dataset, args.distribution, i, real_pca, fake_pca)
             log_z_posterior(encoder, i)
 
+    os.makedirs('model', exist_ok=True)
+    torch.save(decoder.state_dict(), f'model/decoder_{args.dataset}_{args.distribution}')
     wandb.finish()
 
 

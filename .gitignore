@@ -3,3 +3,9 @@ __pycache__/
 generated_images/
 wandb/
 inception_model_info/
+model/decoder_ffhq32_chi
+model/decoder_ffhq32_gamma
+model/decoder_ffhq32_laplace
+model/decoder_ffhq32_standard_normal
+model/decoder_ffhq32_uniform
+*.csv

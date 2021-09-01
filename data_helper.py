@@ -37,9 +37,15 @@ def get_ffhq_thumbnails(batch_size, image_size):
     test_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, sampler=test_sampler)
     return train_loader, test_loader
 
-def get_ffhq_thumbnails_tensorflow(batch_size, image_size):
-    # TODO: 여기 구현하기
-    return None
+
+def get_ffhq_thumbnails_raw_images(image_size):
+    image_path = "../data/"
+    transformation = transforms.Compose([
+        transforms.Resize((image_size, image_size)),
+        transforms.ToTensor(),
+    ])
+    dataset = torchvision.datasets.ImageFolder(image_path + 'ffhq/thumbnails128x128', transformation)
+    return dataset
 
 
 def get_cifar_dataset(batch_size, img_size):
