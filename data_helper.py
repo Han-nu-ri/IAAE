@@ -28,14 +28,8 @@ def get_ffhq_thumbnails(batch_size, image_size):
         transforms.ToTensor(),
     ])
     train_dataset = torchvision.datasets.ImageFolder(image_path + 'ffhq/thumbnails128x128', transformation)
-    num_train = len(train_dataset)
-    indices = list(range(num_train))
-    train_indices, test_indices = indices[:60000], indices[60000:]
-    train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
-    test_sampler = torch.utils.data.SubsetRandomSampler(test_indices)
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler)
-    test_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, sampler=test_sampler)
-    return train_loader, test_loader
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
+    return train_loader, None
 
 
 def get_ffhq_thumbnails_raw_images(image_size):
@@ -113,3 +107,18 @@ def get_mnist(batch_size, image_size):
     )
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True)
     return train_loader, None
+
+
+def get_data(dataset, batch_size, image_size):
+    if dataset == 'ffhq':
+        return get_ffhq_thumbnails(batch_size, image_size)
+    elif dataset == 'cifar':
+        return get_cifar_dataset(batch_size, image_size)
+    elif dataset == 'emnist':
+        return get_e_mnist(batch_size, image_size)
+    elif dataset == 'mnist':
+        return get_mnist(batch_size, image_size)
+    elif dataset == 'mnist_fashion':
+        return get_fashion_mnist(batch_size, image_size)
+    else:
+        return get_celebA_dataset(batch_size, image_size)

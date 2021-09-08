@@ -1,9 +1,9 @@
-python aae_for_various_prior.py --dataset=ffhq32 --distribution=standard_normal
-python aae_for_various_prior.py --dataset=ffhq32 --distribution=uniform
-python aae_for_various_prior.py --dataset=ffhq32 --distribution=gamma
-python aae_for_various_prior.py --dataset=ffhq32 --distribution=beta
-python aae_for_various_prior.py --dataset=ffhq32 --distribution=chi
-python aae_for_various_prior.py --dataset=ffhq32 --distribution=laplace
+python aae.py --dataset=ffhq --distribution=standard_normal --image_size=128
+python aae.py --dataset=ffhq --distribution=uniform --image_size=128
+python aae.py --dataset=ffhq --distribution=gamma --image_size=128
+python aae.py --dataset=ffhq --distribution=beta --image_size=128
+python aae.py --dataset=ffhq --distribution=chi --image_size=128
+python aae.py --dataset=ffhq --distribution=laplace --image_size=128
 
 REM python aae.py --dataset=ffhq64
 REM python aae.py --dataset=cifar

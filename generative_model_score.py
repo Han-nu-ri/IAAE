@@ -5,6 +5,11 @@ import numpy as np
 import prdc
 import pickle
 import matplotlib.pyplot as plt
+from torch.utils.data import TensorDataset, DataLoader
+import tqdm
+
+import data_helper
+import prior_factory
 
 
 class GenerativeModelScore:
@@ -13,9 +18,6 @@ class GenerativeModelScore:
         self.inception_model = torch.hub.load('pytorch/vision:v0.9.0', 'inception_v3', pretrained=True)
         self.inception_model.forward = self._forward
         self.inception_model.eval()
-
-        self.real_images = None
-        self.fake_images = None
 
         self.real_predict_softmax = None
         self.real_feature = None
@@ -162,12 +164,7 @@ class GenerativeModelScore:
         self.lazy = tf
 
     def put_real(self, real_images):
-        if self.lazy:
-            if self.real_images is None:
-                self.real_images = real_images
-            else:
-                self.real_images = torch.cat([self.real_images, real_images])
-        else:
+        if not self.lazy:
             self.real_forward(real_images)
 
     def real_forward(self, real_images):
@@ -180,12 +177,7 @@ class GenerativeModelScore:
             self.real_feature = torch.cat([self.real_feature, real_feature.detach().cpu()])
 
     def put_fake(self, fake_images):
-        if self.lazy:
-            if self.fake_images is None:
-                self.fake_images = fake_images
-            else:
-                self.fake_images = torch.cat([self.fake_images, fake_images])
-        else:
+        if not self.lazy:
             self.fake_forward(fake_images)
 
     def fake_forward(self, fake_images):
@@ -197,27 +189,19 @@ class GenerativeModelScore:
             self.fake_predict_softmax = torch.cat([self.fake_predict_softmax, fake_predict_softmax.detach().cpu()])
             self.fake_feature = torch.cat([self.fake_feature, fake_feature.detach().cpu()])
 
-    def lazy_forward(self, batch_size=64, shuffle=True, num_workers=4, real_forward=False, fake_forward=False,
-                     device='cpu'):
-
+    def lazy_forward(self, dataset, image_size=32, batch_size=16,
+                     decoder=None, distribution=None, latent_dim=None, real_forward=True, device='cpu'):
         assert self.lazy, "lazy_forward only run in lazy mode. call lazy_mode() first."
-
-        from torch.utils.data import TensorDataset, DataLoader
-        import tqdm
-
+        train_loader, _ = data_helper.get_data(dataset, batch_size, image_size)
         if real_forward:
-            real_dataset = TensorDataset(self.real_images)
-            real_loader = DataLoader(real_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
             print("generate real images info")
-            for real_images in tqdm.tqdm(real_loader):
-                self.real_forward(real_images[0].to(device))
-
-        if fake_forward:
-            fake_dataset = TensorDataset(self.fake_images)
-            fake_loader = DataLoader(fake_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+            for each_batch in tqdm.tqdm(train_loader):
+                self.real_forward(each_batch[0].to(device))
+        else:
             print("generate fake images info")
-            for fake_images in tqdm.tqdm(fake_loader):
-                self.fake_forward(fake_images[0].to(device))
+            for each_batch in tqdm.tqdm(train_loader):
+                z = torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))
+                self.fake_forward(decoder(z).to(device))
 
     def save_real_images_info(self, file_name='real_images_info.pickle'):
         with open(file_name, 'wb') as f:
@@ -239,7 +223,6 @@ class GenerativeModelScore:
         self.fake_mu, self.fake_sigma = self.feature_to_mu_sig(self.fake_feature_np)
 
     def clear_fake(self):
-        self.fake_images = None
         self.fake_predict_softmax = None
         self.fake_feature = None
         self.fake_mu, self.fake_sigma = None, None
@@ -261,8 +244,8 @@ class GenerativeModelScore:
             real_fake = torch.cat([real, fake])
 
             U, S, V = torch.pca_lowrank(real_fake)
-            real_pca = torch.matmul(real, V[:, :2])
-            fake_pca = torch.matmul(fake, V[:, :2])
+            real_pca = torch.matmul(real, V[:, :3])
+            fake_pca = torch.matmul(fake, V[:, :3])
 
             plt.scatter(fake_pca[:, 0], fake_pca[:, 1], label='fake', alpha=0.6, s=0.1)
             plot = plt.scatter(real_pca[:, 0], real_pca[:, 1], label='real', alpha=0.6, s=0.1)
