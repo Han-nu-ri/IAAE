@@ -190,7 +190,8 @@ class GenerativeModelScore:
             self.fake_feature = torch.cat([self.fake_feature, fake_feature.detach().cpu()])
 
     def lazy_forward(self, dataset, image_size=32, batch_size=16,
-                     decoder=None, distribution=None, latent_dim=None, real_forward=True, device='cpu'):
+                     decoder=None, distribution=None, latent_dim=None, real_forward=True, device='cpu',
+                     model_name='aae', mapper=None):
         assert self.lazy, "lazy_forward only run in lazy mode. call lazy_mode() first."
         train_loader, _ = data_helper.get_data(dataset, batch_size, image_size)
         if real_forward:
@@ -200,8 +201,13 @@ class GenerativeModelScore:
         else:
             print("generate fake images info")
             for each_batch in tqdm.tqdm(train_loader):
-                z = torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))
-                self.fake_forward(decoder(z).to(device))
+                if model_name == "mimic":
+                    z = torch.rand(batch_size, latent_dim) * 2 - 1
+                    fake_images = decoder(mapper(z)).to(device)
+                else:
+                    z = torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))
+                    fake_images = decoder(z).to(device)
+                self.fake_forward(fake_images)
 
     def save_real_images_info(self, file_name='real_images_info.pickle'):
         with open(file_name, 'wb') as f:

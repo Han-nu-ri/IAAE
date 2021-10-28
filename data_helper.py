@@ -26,9 +26,12 @@ def get_ffhq_thumbnails(batch_size, image_size):
     transformation = transforms.Compose([
         transforms.Resize((image_size, image_size)),
         transforms.ToTensor(),
+        transforms.CenterCrop(image_size),
+        transforms.Normalize((0.5, 0.5, 0.5),
+                             (0.5, 0.5, 0.5)),
     ])
     train_dataset = torchvision.datasets.ImageFolder(image_path + 'ffhq/thumbnails128x128', transformation)
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     return train_loader, None
 
 
@@ -37,6 +40,9 @@ def get_ffhq_thumbnails_raw_images(image_size):
     transformation = transforms.Compose([
         transforms.Resize((image_size, image_size)),
         transforms.ToTensor(),
+        transforms.CenterCrop(image_size),
+        transforms.Normalize((0.5, 0.5, 0.5),
+                             (0.5, 0.5, 0.5)),
     ])
     dataset = torchvision.datasets.ImageFolder(image_path + 'ffhq/thumbnails128x128', transformation)
     return dataset

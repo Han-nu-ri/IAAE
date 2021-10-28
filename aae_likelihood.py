@@ -2,9 +2,9 @@ import argparse
 import numpy as np
 import pandas as pd
 import data_helper
+import model
 import prior_factory
 import torch
-import aae
 import time
 import wandb
 import matplotlib
@@ -119,7 +119,7 @@ def main():
     latent_dim = 32
     image_size = 32
     image_shape = [3, image_size, image_size]
-    decoder = aae.Decoder(latent_dim, image_shape).cuda()
+    decoder = model.Decoder(latent_dim, image_shape).cuda()
     decoder.load_state_dict(torch.load(f'model/decoder_{args.dataset}_{args.distribution}'))
     z_list = train_z_with_decoder(decoder, latent_dim, args.dataset, image_size, args.distribution)
     likelihoods = calculate_likelihood_of_z_from_distribution(z_list, args.distribution)
