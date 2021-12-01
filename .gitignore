@@ -5,3 +5,4 @@ wandb/
 inception_model_info/
 *.csv
 model/
+*.png

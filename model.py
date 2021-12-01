@@ -74,10 +74,7 @@ class Decoder(nn.Module):
 
     def forward(self, input):
         input = input.view(-1, self.nz, 1, 1)
-        if input.is_cuda and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.model, input, range(self.ngpu))
-        else:
-            output = self.model(input)
+        output = self.model(input)
         return output
 
 
@@ -222,4 +219,4 @@ def train_mapper(encoder, mapper, device, lr, batch_size, encoded_feature_list):
         uniform_input = each_batch.to(device)
         sorted_encoded_feature = label_feature.to(device)
         m_loss = update_mimic(m_optimizer, uniform_input, sorted_encoded_feature, mapper)
-    return m_loss, feature_tensor_dloader
+    return m_loss

@@ -14,23 +14,19 @@ import matplotlib.pyplot as plt
 import data_helper
 import prior_factory
 import model
+from torchvision.utils import save_image
 matplotlib.use('Agg')
 
 
-def sample_image(encoder, decoder, x, model_name, batch_size, latent_dim, mapper):
-    if model_name == 'aae':
-        z = encoder(x)
-        return decoder(z)
-    elif model_name == 'mimic':
-        z = torch.rand(batch_size, latent_dim).cuda() * 2 - 1
-        return decoder(mapper(z))
-    else:
-        raise Exception("Check model_name arg")
-
-
-def inference_image(decoder, batch_size, latent_dim, distribution):
-    z = torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim)).cuda()
-    return decoder(z)
+def inference_image(model_name, mapper, decoder, batch_size, latent_dim, distribution):
+    with torch.no_grad():
+        if model_name == 'mimic':
+            z = torch.rand(batch_size, latent_dim).cuda() * 2 - 1
+            result = decoder(mapper(z)).cpu()
+        else:
+            z = Variable(torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))).cuda()
+            result = decoder(z).cpu()
+    return result
 
 
 def load_inception_model(train_loader, dataset, image_size):
@@ -112,31 +108,15 @@ def swap_gpu_between_generative_model_and_inception_model(decoder, discriminator
     return decoder, discriminator, encoder, mapper, inception_model_score
 
 
-def save_images(each_epoch, images):
-    images = images.numpy()
-    images = np.transpose(images, (0, 2, 3, 1))
-    folder_name = 'generated_images'
-    os.makedirs(folder_name, exist_ok=True)
-    plt.figure(figsize=(5, 5))
-    for i in range(images.shape[0]):
-        plt.subplot(5, 5, i + 1)
-        plt.imshow((images[i, :, :, :] * 255).astype('uint8'))
-        plt.axis('off')
-    generated_image_file = folder_name + '/image_at_epoch_' + str(each_epoch + 1) + '.png'
-    plt.savefig(generated_image_file)
-    plt.close()
-    return Image.open(generated_image_file)
-
-
-def generate_image_and_save_in_wandb(decoder, encoder, i, train_loader, model_name, batch_size=None, latent_dim=None,
-                                     mapper=None):
-    for each_batch in tqdm.tqdm(train_loader):
-        each_batch_cuda = Variable(each_batch[0]).cuda()
-        sampled_images = sample_image(encoder, decoder, each_batch_cuda, model_name, batch_size, latent_dim,
-                                      mapper).detach().cpu()
-        break
-    generated_image_file = save_images(i, sampled_images.data[0:25].cpu())
-    wandb.log({'image': wandb.Image(generated_image_file, caption='%s_epochs' % i)}, step=i)
+def generate_image_and_save_in_wandb(mapper, decoder, each_epoch, model_name, latent_dim, distribution, dataset):
+    number_of_image = 100
+    sampled_images = inference_image(model_name, mapper, decoder, number_of_image, latent_dim, distribution)
+    folder_name = '%s_%s' % (dataset, model_name)
+    os.makedirs('images/%s' % folder_name, exist_ok=True)
+    image_name = "images/%s/%d_epoch.png" % (folder_name, each_epoch)
+    save_image(sampled_images.data, image_name, nrow=10, normalize=True)
+    generated_image_file = Image.open(image_name)
+    wandb.log({'image': wandb.Image(generated_image_file, caption='%s_epochs' % each_epoch)}, step=each_epoch)
 
 
 def log_z_posterior(encoder, i):
@@ -148,10 +128,10 @@ def log_z_posterior(encoder, i):
 def write_feature(model_name, dataset, image_size, distribution, epoch, real_feature_np, fake_feature_np):
     folder_name = 'feature_data/'
     os.makedirs(folder_name, exist_ok=True)
-    np.savetxt(f"{folder_name}{model_name}{dataset}_{image_size}_{distribution}_{epoch}_real_feature_data.csv",
+    np.savetxt(f"{folder_name}{model_name}_{dataset}_{image_size}_{distribution}_{epoch}_real_feature_data.csv",
                real_feature_np,
                delimiter=",")
-    np.savetxt(f"{folder_name}{model_name}{dataset}_{image_size}_{distribution}_{epoch}_fake_feature_data.csv",
+    np.savetxt(f"{folder_name}{model_name}_{dataset}_{image_size}_{distribution}_{epoch}_fake_feature_data.csv",
                fake_feature_np,
                delimiter=",")
 
@@ -199,20 +179,19 @@ def pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader):
     return decoder, encoder
 
 
-def log_and_write_pca(args, d_loss, decoder, discriminator, encoder, g_loss, i, inception_model_score, mapper, r_loss,
-                      train_loader):
-    if i % args.log_interval == 0:
-        generate_image_and_save_in_wandb(decoder, encoder, i, train_loader, args.model_name, args.batch_size,
-                                         args.latent_dim, mapper)
+def log_and_write_pca(args, d_loss, decoder, discriminator, encoder, g_loss, i, inception_model_score, mapper, r_loss):
+    if i % args.log_interval == 0 or i == (args.epochs - 1):
+        generate_image_and_save_in_wandb(mapper, decoder, i, args.model_name, args.latent_dim, args.distribution,
+                                         args.dataset)
         encoder, decoder, discriminator, mapper, real_pca, fake_pca = \
             log_index_with_inception_model(d_loss, decoder, discriminator, encoder, g_loss, i,
                                            inception_model_score, r_loss, args.dataset, args.distribution,
                                            args.latent_dim, args.model_name, mapper)
-    if i == (args.epochs - 1):
-        write_pca_data(args.model_name, args.dataset, args.image_size, args.distribution, i, real_pca, fake_pca)
-        write_feature(args.model_name, args.dataset, args.image_size, args.distribution, i,
-                      inception_model_score.real_feature_np,
-                      inception_model_score.fake_feature_np)
+        if i == (args.epochs - 1):
+            write_pca_data(args.model_name, args.dataset, args.image_size, args.distribution, i, real_pca, fake_pca)
+            write_feature(args.model_name, args.dataset, args.image_size, args.distribution, i,
+                          inception_model_score.real_feature_np,
+                          inception_model_score.fake_feature_np)
     return decoder, discriminator, encoder, mapper
 
 
@@ -246,8 +225,7 @@ def main(args):
             g_loss = model.train_mapper(encoder, mapper, args.device, args.lr, args.batch_size, encoded_feature_list)
 
         decoder, discriminator, encoder, mapper = log_and_write_pca(args, d_loss, decoder, discriminator, encoder,
-                                                                    g_loss, i, inception_model_score, mapper, r_loss,
-                                                                    train_loader)
+                                                                    g_loss, i, inception_model_score, mapper, r_loss)
     save_models(args, decoder, encoder, mapper)
     wandb.finish()
 
@@ -263,7 +241,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_name', type=str, choices=['aae', 'mimic'])
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--pretrain_epoch', type=int, default=10)
     parser.add_argument('--latent_dim', type=int, default=32)
     parser.add_argument('--log_interval', type=int, default=10)
