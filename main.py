@@ -4,13 +4,13 @@ import pandas as pd
 import torch
 import generative_model_score
 import matplotlib
+import matplotlib.pyplot as plt
 import wandb
 from torch.autograd import Variable
 import tqdm
 import os
 import hashlib
 from PIL import Image
-import matplotlib.pyplot as plt
 import data_helper
 import prior_factory
 import model
@@ -25,6 +25,8 @@ def inference_image(model_name, mapper, decoder, batch_size, latent_dim, distrib
             result = decoder(mapper(z)).cpu()
         else:
             z = Variable(torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))).cuda()
+            if decoder.has_mask_layer:
+                z = torch.mul(z, decoder.mask_vector)
             result = decoder(z).cpu()
     return result
 
@@ -84,6 +86,10 @@ def log_index_with_inception_model(d_loss, decoder, discriminator, encoder, g_lo
                "density": density,
                "coverage": coverage},
               step=i)
+    if decoder.has_mask_layer:
+        mask_vector_2d_list = [[each_mask_element] for each_mask_element in decoder.mask_vector.cpu().detach().numpy()]
+        mask_table = wandb.Table(data=mask_vector_2d_list, columns=["mask_value"])
+        wandb.log({"mask_vector_hist": wandb.plot.histogram(mask_table, "mask_value", title="mask_vector_hist")}, step=i)
     inception_model_score.clear_fake()
     return encoder, decoder, discriminator, mapper, real_pca, fake_pca
 
@@ -202,7 +208,7 @@ def main(args):
                                       "image_size": args.image_size, "latent_dim": args.latent_dim})
     inception_model_score = load_inception_model(train_loader, args.dataset, args.image_size)
     ae_optimizer, d_optimizer, decoder, discriminator, encoder, g_optimizer, mapper = \
-        model.get_aae_model_and_optimizer(args.latent_dim, args.image_size)
+        model.get_aae_model_and_optimizer(args.latent_dim, args.image_size, args.has_mask_layer)
     if args.model_name == 'mimic':
         mapper = model.Mimic(args.latent_dim, args.latent_dim, args.mapper_inter_nz, args.mapper_inter_layer).to(
             args.device)
@@ -213,7 +219,7 @@ def main(args):
         encoded_feature_list = []
         for each_batch in tqdm.tqdm(train_loader):
             each_batch = Variable(each_batch[0]).cuda()
-            if args.model_name == 'aae':
+            if args.model_name == 'aae' or args.model_name == 'mask_aae':
                 d_loss, g_loss, r_loss = model.update_aae(ae_optimizer, args, d_optimizer, decoder, discriminator,
                                                           each_batch, encoder, g_optimizer, args.latent_dim)
             elif args.model_name == 'mimic':
@@ -238,7 +244,8 @@ if __name__ == "__main__":
                         choices=['standard_normal', 'uniform', 'gamma', 'beta', 'chi', 'dirichlet', 'laplace'],
                         default='standard_normal')
     parser.add_argument('--image_size', type=int, choices=[32, 64, 128], default=128)
-    parser.add_argument('--model_name', type=str, choices=['aae', 'mimic'])
+    parser.add_argument('--model_name', type=str, choices=['aae', 'mimic', 'mask_aae'])
+    parser.add_argument('--has_mask_layer', type=bool, default=False)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--epochs', type=int, default=100)
@@ -248,4 +255,7 @@ if __name__ == "__main__":
     parser.add_argument('--mapper_inter_nz', type=int, default=32)
     parser.add_argument('--mapper_inter_layer', type=int, default=1)
     args = parser.parse_args()
+
+    if args.model_name == 'mask_aae':
+        args.has_mask_layer = True
     main(args)

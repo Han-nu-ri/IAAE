@@ -206,6 +206,8 @@ class GenerativeModelScore:
                     fake_images = decoder(mapper(z)).to(device)
                 else:
                     z = torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))
+                    if decoder.has_mask_layer:
+                        z = torch.mul(z, decoder.mask_vector.cpu())
                     fake_images = decoder(z).to(device)
                 self.fake_forward(fake_images)
 

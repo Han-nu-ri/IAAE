@@ -43,7 +43,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, nz=32, img_size=32, ngpu=1, ngf=64, nc=3):
+    def __init__(self, nz=32, img_size=32, ngpu=1, ngf=64, nc=3, has_mask_layer=False):
         super(Decoder, self).__init__()
         self.ngpu = ngpu
         self.nz = nz
@@ -71,6 +71,11 @@ class Decoder(nn.Module):
             nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False),
             # state size. (nc) x 32 x 32
         )
+
+        self.has_mask_layer = has_mask_layer
+        if has_mask_layer:
+            self.theta_vector = torch.rand(nz, requires_grad=True).cuda()
+            self.mask_vector = torch.max(torch.zeros_like(self.theta_vector), 1 - torch.exp(-self.theta_vector))
 
     def forward(self, input):
         input = input.view(-1, self.nz, 1, 1)
@@ -136,47 +141,56 @@ class Mimic(nn.Module):
 def update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature=False):
     ae_optimizer.zero_grad()
     z_posterior = encoder(each_batch)
+    if decoder.has_mask_layer:
+        z_posterior = torch.mul(z_posterior, decoder.mask_vector)
     fake_batch = decoder(z_posterior)
-    pixel_wise_loss = torch.nn.L1Loss(reduction='sum')
+    pixel_wise_loss = torch.nn.L1Loss(reduction='mean')
     r_loss = pixel_wise_loss(fake_batch, each_batch)
-    r_loss.backward()
+    if decoder.has_mask_layer:
+        r_loss += 0.1 * torch.sum(torch.abs(torch.mul(1 - decoder.mask_vector, decoder.mask_vector)))
+    r_loss.backward(retain_graph=True)
     ae_optimizer.step()
     if return_encoded_feature:
         return r_loss, z_posterior.detach().cpu()
     return r_loss
 
 
-def update_discriminator(d_optimizer, each_batch, encoder, discriminator, latent_dim, distribution):
+def update_discriminator(d_optimizer, each_batch, encoder, decoder, discriminator, latent_dim, distribution):
     d_optimizer.zero_grad()
     batch_size = each_batch.size(0)
     z_prior = Variable(torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))).cuda()
     z_posterior = encoder(each_batch)
+    if decoder.has_mask_layer:
+        z_prior = torch.mul(z_prior, decoder.mask_vector)
+        z_posterior = torch.mul(z_posterior, decoder.mask_vector)
     d_loss = -torch.mean(torch.log(discriminator(z_prior)) + torch.log(1 - discriminator(z_posterior)))
-    d_loss.backward()
+    d_loss.backward(retain_graph=True)
     d_optimizer.step()
     return d_loss.data
 
 
-def update_generator(g_optimizer, each_batch, encoder, discriminator):
+def update_generator(g_optimizer, each_batch, encoder, decoder, discriminator):
     g_optimizer.zero_grad()
     z_posterior = encoder(each_batch)
+    if decoder.has_mask_layer:
+        z_posterior = torch.mul(z_posterior, decoder.mask_vector)
     g_loss = -torch.mean(torch.log(discriminator(z_posterior)))
-    g_loss.backward()
+    g_loss.backward(retain_graph=True)
     g_optimizer.step()
     return g_loss.data
 
 
 def update_aae(ae_optimizer, args, d_optimizer, decoder, discriminator, each_batch, encoder, g_optimizer, latent_dim):
     r_loss = update_autoencoder(ae_optimizer, each_batch, encoder, decoder)
-    d_loss = update_discriminator(d_optimizer, each_batch, encoder, discriminator, latent_dim,
+    d_loss = update_discriminator(d_optimizer, each_batch, encoder, decoder, discriminator, latent_dim,
                                   args.distribution)
-    g_loss = update_generator(g_optimizer, each_batch, encoder, discriminator)
+    g_loss = update_generator(g_optimizer, each_batch, encoder, decoder, discriminator)
     return d_loss, g_loss, r_loss
 
 
-def get_aae_model_and_optimizer(latent_dim, image_size):
+def get_aae_model_and_optimizer(latent_dim, image_size, has_mask_layer):
     encoder = Encoder(latent_dim, image_size).cuda()
-    decoder = Decoder(latent_dim, image_size).cuda()
+    decoder = Decoder(latent_dim, image_size, has_mask_layer=has_mask_layer).cuda()
     mapper = None
     discriminator = Discriminator(latent_dim).cuda()
     ae_optimizer = torch.optim.Adam(itertools.chain(encoder.parameters(), decoder.parameters()), lr=1e-4)
