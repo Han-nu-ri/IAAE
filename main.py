@@ -20,8 +20,9 @@ matplotlib.use('Agg')
 
 
 def load_inception_model(train_loader, dataset, image_size):
-    icm_path = '../../../inception_model_info/'
-    #imc_path = './inception_model_info/'
+    # TODO: 경로 args로 받도록 개선
+    #icm_path = '../../../inception_model_info/'
+    icm_path = './inception_model_info/'
     inception_model_score.lazy_mode(True)
     real_images_info_file_name = hashlib.md5(str(train_loader.dataset).encode()).hexdigest() + '.pickle'
     os.makedirs('inception_model_info', exist_ok=True)
@@ -210,11 +211,8 @@ def log_and_write_pca(args, d_loss, decoder, discriminator, encoder, g_loss, i, 
 
 
 def main(args):
-    
-
-    
     train_loader, _ = data_helper.get_data(args.dataset, args.batch_size, args.image_size)
-    if args.wandb : 
+    if args.wandb:
         wandb.login()
         wandb.init(project="AAE", config={"batch_size": args.batch_size, "epochs": args.epochs,
                                       "image_size": args.image_size, "latent_dim": args.latent_dim})
@@ -226,7 +224,7 @@ def main(args):
             args.device)
         decoder, encoder = pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader)
     if args.model_name == 'non-prior':
-        mapper, m_optimizer = model.get_nonprior_model_and_optimizer(args.latent_dim, args.mapper_inter_layer, args.mapper_inter_nz)
+        mapper, m_optimizer = model.get_nonprior_model_and_optimizer(args.latent_dim, args.mapper_inter_nz, args.mapper_inter_layer)
 
     for i in range(0, args.epochs):
         d_loss, g_loss, r_loss = 0, 0, 0
@@ -240,20 +238,19 @@ def main(args):
                 r_loss, encoded_feature = \
                     model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature=True)
                 encoded_feature_list.append(encoded_feature)                
-            elif args.model_name == 'non-prior' :
+            elif args.model_name == 'non-prior':
                 r_loss, encoded_feature = model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature_gpu=True)
                 d_loss, m_loss = model.update_posterior_part(mapper, discriminator, m_optimizer, d_optimizer, encoded_feature, args.latent_dim)
-            
 
         if args.model_name == 'mimic':
             g_loss = model.train_mapper(encoder, mapper, args.device, args.lr, args.batch_size, encoded_feature_list)
 
-        if args.wandb : 
+        if args.wandb:
             decoder, discriminator, encoder, mapper = log_and_write_pca(args, d_loss, decoder, discriminator, encoder,
                                                                     g_loss, i, inception_model_score, mapper, r_loss)
     save_models(args, decoder, encoder, mapper)
     
-    if args.wandb : 
+    if args.wandb:
         wandb.finish()
 
 

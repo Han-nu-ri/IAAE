@@ -1,10 +1,8 @@
 import torch
+import torchvision
+from torchvision import transforms
 
 def get_celebA_dataset(batch_size, image_size):
-    import torchvision
-    from torchvision import transforms
-
-    
     image_path = "../data/"
     transformation = transforms.Compose([
         transforms.Resize((image_size, image_size)),
@@ -23,12 +21,9 @@ def get_celebA_dataset(batch_size, image_size):
 
 
 def get_ffhq_thumbnails(batch_size, image_size):
-    import torchvision
-    from torchvision import transforms
-
-    
-    #image_path = "../data/"
-    image_path = '../../dataset/'
+    #TODO: image_path args로 받도록 개선
+    image_path = "../data/"
+    #image_path = '../../dataset/'
     transformation = transforms.Compose([
         transforms.Resize((image_size, image_size)),
         transforms.ToTensor(),
@@ -36,16 +31,12 @@ def get_ffhq_thumbnails(batch_size, image_size):
         transforms.Normalize((0.5, 0.5, 0.5),
                              (0.5, 0.5, 0.5)),
     ])
-    train_dataset = torchvision.datasets.ImageFolder(image_path + 'FFHQ/', transformation)
+    train_dataset = torchvision.datasets.ImageFolder(image_path + 'ffhq/thumbnails128x128', transformation)
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     return train_loader, None
 
 
 def get_ffhq_thumbnails_raw_images(image_size):
-    import torchvision
-    from torchvision import transforms
-
-    
     image_path = "../data/"
     transformation = transforms.Compose([
         transforms.Resize((image_size, image_size)),
@@ -59,10 +50,6 @@ def get_ffhq_thumbnails_raw_images(image_size):
 
 
 def get_cifar_dataset(batch_size, img_size):
-    import torchvision
-    from torchvision import transforms
-
-    
     image_path = "../data/"
     dataset = torchvision.datasets.CIFAR10(root=image_path + 'cifar',  download=True,
                                            transform=transforms.Compose([
@@ -75,10 +62,6 @@ def get_cifar_dataset(batch_size, img_size):
 
 
 def get_e_mnist(batch_size, image_size):
-    import torchvision
-    from torchvision import transforms
-
-    
     image_path = "../data/"
     train_set = torchvision.datasets.EMNIST(
         root=image_path + 'emnist',
@@ -98,10 +81,6 @@ def get_e_mnist(batch_size, image_size):
 
 
 def get_fashion_mnist(batch_size, image_size):
-    import torchvision
-    from torchvision import transforms
-
-    
     image_path = "../data/"
     train_set = torchvision.datasets.FashionMNIST(
         root=image_path + 'fashion_mnist',
@@ -120,10 +99,6 @@ def get_fashion_mnist(batch_size, image_size):
 
 
 def get_mnist(batch_size, image_size):
-    import torchvision
-    from torchvision import transforms
-
-    
     image_path = "../data/"
     train_set = torchvision.datasets.MNIST(
         root=image_path + 'mnist',
@@ -142,10 +117,6 @@ def get_mnist(batch_size, image_size):
 
 
 def get_data(dataset, batch_size, image_size):
-    import torchvision
-    from torchvision import transforms
-
-    
     if dataset == 'ffhq':
         return get_ffhq_thumbnails(batch_size, image_size)
     elif dataset == 'cifar':

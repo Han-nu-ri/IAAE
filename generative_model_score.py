@@ -7,14 +7,11 @@ import pickle
 import matplotlib.pyplot as plt
 from torch.utils.data import TensorDataset, DataLoader
 import tqdm
-
-
 import data_helper
 import prior_factory
 
-class GenerativeModelScore:
 
-    
+class GenerativeModelScore:
     def __init__(self):
 
         self.inception_model = torch.hub.load('pytorch/vision:v0.9.0', 'inception_v3', pretrained=True)
@@ -206,7 +203,7 @@ class GenerativeModelScore:
                 if model_name == "mimic":
                     z = torch.rand(batch_size, latent_dim) * 2 - 1
                     fake_images = decoder(mapper(z)).to(device)
-                elif model_name == 'non-prior' : 
+                elif model_name == 'non-prior':
                     z = torch.randn(batch_size, latent_dim)
                     fake_images = decoder(mapper(z)).to(device)
                 else:

@@ -138,38 +138,30 @@ class Mimic(nn.Module):
         return torch.cat(predict_list, dim=1)
 
 
-class Mapping(nn.Module) : 
-    def __init__(self, in_out_nz, nz, linear_num) : 
+class Mapping(nn.Module):
+    def __init__(self, in_out_nz, mapper_inter_nz, mapper_inter_layer):
         super(Mapping, self).__init__()
-        
         linear = nn.ModuleList()
-        
-        if linear_num >= 2:
-            
-            linear.append( nn.Linear(in_features=in_out_nz, out_features=nz) )
-            linear.append( nn.ELU() )   
+        if mapper_inter_layer >= 2:
+            linear.append(nn.Linear(in_features=in_out_nz, out_features=mapper_inter_nz))
+            linear.append(nn.ELU())
+            for i in range(mapper_inter_layer-2):
+                linear.append(nn.Linear(in_features=mapper_inter_nz, out_features=mapper_inter_nz))
+                linear.append(nn.ELU())
 
-            for i in range(linear_num-2) : 
-                linear.append( nn.Linear(in_features=nz, out_features=nz) )
-                linear.append( nn.ELU() )
-
-            linear.append( nn.Linear(in_features=nz, out_features=in_out_nz) )
-            linear.append( nn.ELU() )
-        else :
-            linear.append( nn.Linear(in_features=in_out_nz, out_features=in_out_nz) )      
-                      
+            linear.append(nn.Linear(in_features=mapper_inter_nz, out_features=in_out_nz))
+            linear.append(nn.ELU())
+        else:
+            linear.append(nn.Linear(in_features=in_out_nz, out_features=in_out_nz))
         self.linear = linear
         
     def forward(self, input):
-        for layer in self.linear : 
+        for layer in self.linear:
             input = layer(input)
         return input
     
-    
-    
 
 def update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature=False, return_encoded_feature_gpu=False):
-    #breakpoint()
     ae_optimizer.zero_grad()
     z_posterior = encoder(each_batch)
     if decoder.has_mask_layer:
@@ -183,7 +175,7 @@ def update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encode
     ae_optimizer.step()
     if return_encoded_feature:
         return r_loss, z_posterior.detach().cpu()
-    if return_encoded_feature_gpu : 
+    if return_encoded_feature_gpu:
         return r_loss, z_posterior.detach()
     return r_loss
 
@@ -220,10 +212,12 @@ def update_aae(ae_optimizer, args, d_optimizer, decoder, discriminator, each_bat
     g_loss = update_generator(g_optimizer, each_batch, encoder, decoder, discriminator)
     return d_loss, g_loss, r_loss
 
-def get_nonprior_model_and_optimizer(latent_dim, mapper_internal_dim, mapper_internal_layer_num) : 
-    mapper = Mapping(latent_dim, mapper_internal_dim, mapper_internal_layer_num).cuda()
+
+def get_nonprior_model_and_optimizer(latent_dim, mapper_inter_nz, mapper_inter_layer):
+    mapper = Mapping(latent_dim, mapper_inter_nz, mapper_inter_layer).cuda()
     m_optimizer = torch.optim.Adam(mapper.parameters(), lr=1e-4)
     return mapper, m_optimizer
+
 
 def get_aae_model_and_optimizer(latent_dim, image_size, has_mask_layer):
     encoder = Encoder(latent_dim, image_size).cuda()
