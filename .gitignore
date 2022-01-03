@@ -7,3 +7,4 @@ inception_model_info/
 model/
 *.png
 *.ipynb
+.ipynb_checkpoints/*
