@@ -6,3 +6,4 @@ inception_model_info/
 *.csv
 model/
 *.png
+*.ipynb
