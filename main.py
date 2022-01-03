@@ -73,7 +73,7 @@ def log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder
                                                               mapper, generative_model_gpu=False)
     inception_model_score.lazy_forward(dataset, decoder=decoder, distribution=distribution, latent_dim=latent_dim,\
                                        real_forward=False, device='cuda', model_name=model_name, mapper=mapper, \
-                                       gen_image_in_gpu=args.gen_image_in_gpu)
+                                       gen_image_in_gpu=args.gen_image_in_gpu, batch_size=args.isnet_batch_size)
     inception_model_score.calculate_fake_image_statistics()
     metrics, feature_pca_plot, real_pca, fake_pca = \
         inception_model_score.calculate_generative_score(feature_pca_plot=True)
@@ -230,7 +230,7 @@ def main(args):
     for i in range(0, args.epochs):
         d_loss, g_loss, r_loss = 0, 0, 0
         encoded_feature_list = []
-        for each_batch in tqdm.tqdm(train_loader):
+        for each_batch in tqdm.tqdm(train_loader, desc="train[%d/%d]" % (i, args.epochs)):
             each_batch = each_batch[0].cuda()
             if args.model_name in ['aae', 'mask_aae']:
                 d_loss, g_loss, r_loss = model.update_aae(ae_optimizer, args, d_optimizer, decoder, discriminator,
@@ -275,6 +275,7 @@ if __name__ == "__main__":
     parser.add_argument('--has_mask_layer', type=bool, default=False)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--isnet_batch_size', type=int, default=128)
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--pretrain_epoch', type=int, default=10)
     parser.add_argument('--latent_dim', type=int, default=32)

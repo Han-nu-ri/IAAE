@@ -202,28 +202,32 @@ class GenerativeModelScore:
             if gen_image_in_gpu : 
                 
                 fake_images_list = []
-                decoder, mapper = decoder.to(device), mapper.to(device)               
                 
-                for each_batch in tqdm.tqdm(train_loader):
+                decoder = decoder.to(device)
+                if isinstance(mapper, torch.nn.Module) : mapper = mapper.to(device)
+                
+                
+                for each_batch in tqdm.tqdm(train_loader, desc='gen_fake'):
                     with torch.no_grad() : 
                         if model_name == "mimic":
-                            z = torch.rand(batch_size, latent_dim) * 2 - 1
+                            z = torch.rand(batch_size, latent_dim, device=device) * 2 - 1
                             fake_images = decoder(mapper(z))
                         elif model_name == 'non-prior':
-                            z = torch.randn(batch_size, latent_dim)
+                            z = torch.randn(batch_size, latent_dim, device=device)
                             fake_images = decoder(mapper(z))
                         else:
-                            z = torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))
+                            z = torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim)).to(device)
                             if decoder.has_mask_layer:
-                                z = torch.mul(z, decoder.mask_vector.cpu())
+                                z = torch.mul(z, decoder.mask_vector)
                             fake_images = decoder(z)                        
                         fake_images_list.append(fake_images.cpu())
                 
-                decoder, mappper = decoder.to('cpu'), mapper.to('cpu')
+                decoder = decoder.to('cpu')
+                if isinstance(mapper, torch.nn.Module) : mapper = mapper.to('cpu')
                 
                 
                 fake_predict_softmax_list, fake_feature_list = [], []
-                for index in range(len(fake_images_list)) : 
+                for index in tqdm.tqdm(range(len(fake_images_list)), desc='gen_feature') : 
                     fake_images_gpu = fake_images_list[index].to(device)
                     with torch.no_grad() : 
                         fake_predict_softmax, fake_feature = self.analysis_softmax_and_feature(fake_images)
@@ -232,8 +236,8 @@ class GenerativeModelScore:
                         fake_images_list[index] = None
                         
                 self.fake_predict_softmax = torch.cat(fake_predict_softmax_list)
-                self.fake_feature = torch.cat(fake_images_list)
-                
+                self.fake_feature = torch.cat(fake_feature_list)
+  
             else : 
                 
                 for each_batch in tqdm.tqdm(train_loader):
