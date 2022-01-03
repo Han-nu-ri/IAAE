@@ -66,13 +66,14 @@ def write_pca_data(model_name, dataset, image_size, distribution, epoch, real_pc
     pca_df.to_csv(f"{folder_name}{model_name}_{dataset}_{image_size}_{distribution}_{epoch}_pca_data.csv")
 
 
-def log_index_with_inception_model(d_loss, decoder, discriminator, encoder, g_loss, i, inception_model_score, r_loss,
+def log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder, g_loss, i, inception_model_score, r_loss,
                                    dataset, distribution, latent_dim, model_name, mapper=None):
     decoder, discriminator, encoder, mapper, inception_model_score = \
         swap_gpu_between_generative_model_and_inception_model(decoder, discriminator, encoder, inception_model_score,
                                                               mapper, generative_model_gpu=False)
-    inception_model_score.lazy_forward(dataset, decoder=decoder, distribution=distribution, latent_dim=latent_dim,
-                                       real_forward=False, device='cuda', model_name=model_name, mapper=mapper)
+    inception_model_score.lazy_forward(dataset, decoder=decoder, distribution=distribution, latent_dim=latent_dim,\
+                                       real_forward=False, device='cuda', model_name=model_name, mapper=mapper, \
+                                       gen_image_in_gpu=args.gen_image_in_gpu)
     inception_model_score.calculate_fake_image_statistics()
     metrics, feature_pca_plot, real_pca, fake_pca = \
         inception_model_score.calculate_generative_score(feature_pca_plot=True)
@@ -199,7 +200,7 @@ def log_and_write_pca(args, d_loss, decoder, discriminator, encoder, g_loss, i, 
         generate_image_and_save_in_wandb(mapper, decoder, i, args.model_name, args.latent_dim, args.distribution,
                                          args.dataset)
         encoder, decoder, discriminator, mapper, real_pca, fake_pca = \
-            log_index_with_inception_model(d_loss, decoder, discriminator, encoder, g_loss, i,
+            log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder, g_loss, i,
                                            inception_model_score, r_loss, args.dataset, args.distribution,
                                            args.latent_dim, args.model_name, mapper)
         if i == (args.epochs - 1):
@@ -255,6 +256,14 @@ def main(args):
 
 
 if __name__ == "__main__":
+    
+    '''
+    vanilla command : 
+    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=aae --batch_size=128 --epochs=100 --latent_dim=32 --log_interval=10 --mapper_inter_nz=32 --mapper_inter_layer=1 --wandb=True --gen_image_in_gpu=True
+    
+    '''
+    
+    
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--dataset', type=str, choices=['ffhq', 'cifar', 'mnist', 'mnist_fashion', 'emnist'])
@@ -273,6 +282,7 @@ if __name__ == "__main__":
     parser.add_argument('--mapper_inter_nz', type=int, default=32)
     parser.add_argument('--mapper_inter_layer', type=int, default=1)
     parser.add_argument('--wandb', type=bool, default=False)
+    parser.add_argument('--gen_image_in_gpu', type=bool, default=False)
     args = parser.parse_args()
 
     if args.model_name == 'mask_aae':

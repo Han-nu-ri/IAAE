@@ -190,7 +190,7 @@ class GenerativeModelScore:
 
     def lazy_forward(self, dataset, image_size=32, batch_size=16,
                      decoder=None, distribution=None, latent_dim=None, real_forward=True, device='cpu',
-                     model_name='aae', mapper=None):
+                     model_name='aae', mapper=None, gen_image_in_gpu=False):
         assert self.lazy, "lazy_forward only run in lazy mode. call lazy_mode() first."
         train_loader, _ = data_helper.get_data(dataset, batch_size, image_size)
         if real_forward:
@@ -199,19 +199,56 @@ class GenerativeModelScore:
                 self.real_forward(each_batch[0].to(device))
         else:
             print("generate fake images info")
-            for each_batch in tqdm.tqdm(train_loader):
-                if model_name == "mimic":
-                    z = torch.rand(batch_size, latent_dim) * 2 - 1
-                    fake_images = decoder(mapper(z)).to(device)
-                elif model_name == 'non-prior':
-                    z = torch.randn(batch_size, latent_dim)
-                    fake_images = decoder(mapper(z)).to(device)
-                else:
-                    z = torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))
-                    if decoder.has_mask_layer:
-                        z = torch.mul(z, decoder.mask_vector.cpu())
-                    fake_images = decoder(z).to(device)
-                self.fake_forward(fake_images)
+            if gen_image_in_gpu : 
+                
+                fake_images_list = []
+                decoder, mapper = decoder.to(device), mapper.to(device)               
+                
+                for each_batch in tqdm.tqdm(train_loader):
+                    with torch.no_grad() : 
+                        if model_name == "mimic":
+                            z = torch.rand(batch_size, latent_dim) * 2 - 1
+                            fake_images = decoder(mapper(z))
+                        elif model_name == 'non-prior':
+                            z = torch.randn(batch_size, latent_dim)
+                            fake_images = decoder(mapper(z))
+                        else:
+                            z = torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))
+                            if decoder.has_mask_layer:
+                                z = torch.mul(z, decoder.mask_vector.cpu())
+                            fake_images = decoder(z)                        
+                        fake_images_list.append(fake_images.cpu())
+                
+                decoder, mappper = decoder.to('cpu'), mapper.to('cpu')
+                
+                
+                fake_predict_softmax_list, fake_feature_list = [], []
+                for index in range(len(fake_images_list)) : 
+                    fake_images_gpu = fake_images_list[index].to(device)
+                    with torch.no_grad() : 
+                        fake_predict_softmax, fake_feature = self.analysis_softmax_and_feature(fake_images)
+                        fake_predict_softmax_list.append(fake_predict_softmax.cpu())
+                        fake_feature_list.append(fake_feature.cpu())
+                        fake_images_list[index] = None
+                        
+                self.fake_predict_softmax = torch.cat(fake_predict_softmax_list)
+                self.fake_feature = torch.cat(fake_images_list)
+                
+            else : 
+                
+                for each_batch in tqdm.tqdm(train_loader):
+                    if model_name == "mimic":
+                        z = torch.rand(batch_size, latent_dim) * 2 - 1
+                        fake_images = decoder(mapper(z)).to(device)
+                    elif model_name == 'non-prior':
+                        z = torch.randn(batch_size, latent_dim)
+                        fake_images = decoder(mapper(z)).to(device)
+                    else:
+                        z = torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))
+                        if decoder.has_mask_layer:
+                            z = torch.mul(z, decoder.mask_vector.cpu())
+                        fake_images = decoder(z).to(device)
+                    self.fake_forward(fake_images)
 
     def save_real_images_info(self, file_name='real_images_info.pickle'):
         with open(file_name, 'wb') as f:
