@@ -16,7 +16,10 @@ import data_helper
 import prior_factory
 import model
 from torchvision.utils import save_image
+import seaborn as sns
+import time
 matplotlib.use('Agg')
+start_time = None
 
 
 def load_inception_model(train_loader, dataset, image_size):
@@ -65,9 +68,89 @@ def write_pca_data(model_name, dataset, image_size, distribution, epoch, real_pc
                            "fake_pca_x": fake_pca[:, 0], "fake_pca_y": fake_pca[:, 1], "fake_pca_z": fake_pca[:, 2]})
     pca_df.to_csv(f"{folder_name}{model_name}_{dataset}_{image_size}_{distribution}_{epoch}_pca_data.csv")
 
+def aae_latent_plt(z, E_x, fnum) : 
+    fig1, ax1 = plt.subplots()
+    sns.kdeplot(E_x, label='E(x):optimize', ax=ax1, alpha=0.6, color='r')
+    sns.kdeplot(z, label='z:target', ax=ax1, alpha=0.6, color='b')
+    ax1.legend()
+    ax1.set_title('feature ' + str(fnum))
+    return fig1    
+
+def nonprior_latent_plt(z, E_x, M_z, fnum) : 
+    fig1, ax1 = plt.subplots()
+    sns.kdeplot(M_z, label='M(z):optimize',  ax=ax1, alpha=0.6, color='r')
+    sns.kdeplot(E_x, label='E(x):target',  ax=ax1, alpha=0.6, color='b')
+    sns.kdeplot(z, label='z:input', ax=ax1, alpha=0.6, color='g')
+    ax1.legend()
+    ax1.set_title('feature ' + str(fnum))
+    return fig1 
+
+def aae_latent_pca_plt(z, E_x, dim=1) : 
+    plt.clf()
+    all_data = torch.cat([z, E_x])
+    U, S, V = torch.pca_lowrank(all_data)
+    pca_z = torch.matmul(z, V[:, :dim])
+    pca_Ex = torch.matmul(E_x, V[:, :dim])
+    sns.kdeplot(pca_Ex.flatten().numpy(), label='E(x):optimize', alpha=0.6, color='r')
+    plot = sns.kdeplot(pca_z.flatten().numpy(), label='Z-target', alpha=0.6, color='b')
+    return plot
+
+def nonprior_latent_pca_plt(z, E_x, M_z, dim=1) : 
+    plt.clf()
+    all_data = torch.cat([E_x, M_z])
+    U, S, V = torch.pca_lowrank(all_data)
+    pca_z = torch.matmul(z, V[:, :dim])
+    pca_Ex = torch.matmul(E_x, V[:, :dim])
+    pca_Mz = torch.matmul(M_z, V[:, :dim])
+    sns.kdeplot(pca_Mz.flatten().numpy(), label='M(z):optimize', alpha=0.6, color='r')
+    sns.kdeplot(pca_Ex.flatten().numpy(), label='E(x):target', alpha=0.6, color='b')
+    plot = sns.kdeplot(pca_z.flatten().numpy(), label='z:input', alpha=0.6, color='g')
+    return plot
+    
+def latent_plot(args, dataset, encoder, mapper, num=2048) :
+    # gather x sample, E(x)
+    train_loader, _ = data_helper.get_data(dataset, args.batch_size, args.image_size)
+    ex_list = []
+    x_list = []
+    for each_batch in train_loader : 
+        with torch.no_grad() : 
+            ex_list.append(encoder(each_batch[0].to(args.device)).cpu())
+            x_list.append(each_batch[0])
+        if args.batch_size * len(ex_list) >= num : break
+    ex_tensor = torch.cat(ex_list)
+    x_tensor = torch.cat(x_list)
+    
+    
+    plt_list = []
+    #case aae. plot{E(x), Gaussian}. E(x) imitate Gaussian. 
+    if args.model_name in ['aae', 'mask_aae'] : 
+        z = torch.randn(*ex_tensor.shape)
+        for i in range(z.size(1)) :
+            plt_list.append(aae_latent_plt(z[:,i],ex_tensor[:,i], i))
+        pca_plt = aae_latent_pca_plt(z, ex_tensor)
+    
+    #case non-prior. plot{Gaussian, M(z), E(x)} M(z) imitate E(x).
+    elif args.model_name in ['non-prior'] : 
+        z = torch.randn(*ex_tensor.shape)
+        M_z = mapper(z.to(args.device)).detach().cpu()
+        for i in range(z.size(1)) :
+            plt_list.append(nonprior_latent_plt(z[:,i],ex_tensor[:,i], i))
+        pca_plt = aae_latent_pca_plt(z, ex_tensor, M_z)
+    
+        
+    return plt_list, pca_plt
+
+    
 
 def log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder, g_loss, i, inception_model_score, r_loss,
                                    dataset, distribution, latent_dim, model_name, mapper=None):
+    
+    global start_time
+    end_time = time.time()
+    run_time = end_time - start_time
+    
+    plt_list, pca_plt = latent_plot(args, dataset, encoder, mapper, num=2048)
+    
     decoder, discriminator, encoder, mapper, inception_model_score = \
         swap_gpu_between_generative_model_and_inception_model(decoder, discriminator, encoder, inception_model_score,
                                                               mapper, generative_model_gpu=False)
@@ -84,6 +167,7 @@ def log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder
     precision, recall, fid, inception_score_real, inception_score_fake, density, coverage = \
         metrics['precision'], metrics['recall'], metrics['fid'], metrics['real_is'], metrics['fake_is'], \
         metrics['density'], metrics['coverage']
+
     wandb.log({'IsNet feature': wandb.Image(feature_pca_plot),
                "r_loss": r_loss,
                "d_loss": d_loss,
@@ -94,7 +178,11 @@ def log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder
                "inception_score_real": inception_score_real,
                "inception_score_fake": inception_score_fake,
                "density": density,
-               "coverage": coverage},
+               "coverage": coverage,
+               "latent kde each dim" : [wandb.Image(plt) for plt in plt_list],
+               "latent kde in pca" : wandb.Image(pca_plt),
+               "run time" : run_time
+              },
               step=i)
     if decoder.has_mask_layer:
         mask_vector_2d_list = [[each_mask_element] for each_mask_element in decoder.mask_vector.cpu().detach().numpy()]
@@ -211,6 +299,29 @@ def log_and_write_pca(args, d_loss, decoder, discriminator, encoder, g_loss, i, 
     return decoder, discriminator, encoder, mapper
 
 
+def force_log_and_write_pca(args, d_loss, decoder, discriminator, encoder, g_loss, i, inception_model_score, mapper, r_loss):
+    #same as log_and_write_pca but no condition
+    generate_image_and_save_in_wandb(mapper, decoder, i, args.model_name, args.latent_dim, args.distribution,
+                                         args.dataset)
+    encoder, decoder, discriminator, mapper, real_pca, fake_pca = \
+            log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder, g_loss, i,
+                                           inception_model_score, r_loss, args.dataset, args.distribution,
+                                           args.latent_dim, args.model_name, mapper)
+       
+    write_pca_data(args.model_name, args.dataset, args.image_size, args.distribution, i, real_pca, fake_pca)
+    write_feature(args.model_name, args.dataset, args.image_size, args.distribution, i,
+                      inception_model_score.real_feature_np,
+                      inception_model_score.fake_feature_np)
+    return decoder, discriminator, encoder, mapper
+    
+
+
+def timeout(time_limit, start_time) : 
+    # if time_limit < run_time, return True
+    # if time_limit > run_time, return False
+    return int(time_limit) < (time.time() - start_tim)
+
+
 def main(args):
     train_loader, _ = data_helper.get_data(args.dataset, args.batch_size, args.image_size)
     if args.wandb:
@@ -226,10 +337,18 @@ def main(args):
         decoder, encoder = pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader)
     if args.model_name == 'non-prior':
         mapper, m_optimizer = model.get_nonprior_model_and_optimizer(args.latent_dim, args.mapper_inter_nz, args.mapper_inter_layer)
-
+    if args.model_name == 'learning-prior':
+        mapper, m_optimizer, discriminator_forpl, dpl_optimizer = \
+            model.get_learning_prior_model_and_optimizer(args.image_size, args.mapper_inter_nz, args.mapper_inter_layer)
+        decoder_optimizer = torch.optim.Adam(decoder.parameters(), lr=1e-4)
+        
+        
+    global start_time
+    start_time = time.time()
     pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader)    
         
     for i in range(0, args.epochs):
+        if args.time_limit and timeout(args.time_limit, start_time) : break
         d_loss, g_loss, r_loss = 0, 0, 0
         encoded_feature_list = []
         for each_batch in tqdm.tqdm(train_loader, desc="train[%d/%d]" % (i, args.epochs)):
@@ -243,14 +362,25 @@ def main(args):
                 encoded_feature_list.append(encoded_feature)                
             elif args.model_name == 'non-prior':
                 r_loss, encoded_feature = model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature_gpu=True)
-                d_loss, m_loss = model.update_posterior_part(mapper, discriminator, m_optimizer, d_optimizer, encoded_feature, args.latent_dim)
-
-        if args.model_name == 'mimic':
-            g_loss = model.train_mapper(encoder, mapper, args.device, args.lr, args.batch_size, encoded_feature_list)
-
-        if args.wandb:
+                d_loss, m_loss = model.update_posterior_part(mapper, discriminator, m_optimizer, d_optimizer, encoded_feature, args.latent_dim)            
+            elif args.model_name == 'learning-prior' : 
+                d_loss, g_loss, r_loss = update_aae_with_mappedz(ae_optimizer, args, d_optimizer, decoder, discriminator, \
+                                                                    mapper, each_batch, encoder, g_optimizer, latent_dim)
+                d_loss += update_mapper_with_discriminator_forpl(dpl_optimizer, m_optimizer, discriminator_forpl, mapper, each_batch, latent_dim)
+            
+            if args.model_name == 'mimic':
+                g_loss = model.train_mapper(encoder, mapper, args.device, args.lr, args.batch_size, encoded_feature_list)
+        
+        # wandb log를 남기고, time_check와 time_limit 옵션이 둘다 없을때만, log interval마다 기록을 남김
+        if args.wandb and not args.time_check and not args.time_limit:
             decoder, discriminator, encoder, mapper = log_and_write_pca(args, d_loss, decoder, discriminator, encoder,
                                                                     g_loss, i, inception_model_score, mapper, r_loss)
+            
+    # wandb log를 남기고, time_check 또는 time_limit 옵션 둘 중 하나라도 있으면, 최후에 기록을 남김
+    if args.wandb and (args.time_check or args.time_limit):
+            decoder, discriminator, encoder, mapper = force_log_and_write_pca(args, d_loss, decoder, discriminator, encoder,
+                                                                    g_loss, i, inception_model_score, mapper, r_loss)
+        
     save_models(args, decoder, encoder, mapper)
     
     if args.wandb:
@@ -261,7 +391,14 @@ if __name__ == "__main__":
     
     '''
     vanilla command : 
-    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=aae --batch_size=128 --epochs=100 --latent_dim=32 --log_interval=10 --mapper_inter_nz=32 --mapper_inter_layer=1 --wandb=True --gen_image_in_gpu=True --isnet_batch_size=128
+    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=aae --batch_size=128 --epochs=100 --pretrain_epoch=0 --latent_dim=32 --log_interval=100 --wandb=True --gen_image_in_gpu=True --isnet_batch_size=128 --time_check=True
+    
+    
+    non-prior command : 
+    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=non-prior --batch_size=128 --epochs=100 --pretrain_epoch=0 --latent_dim=32 --log_interval=100 --mapper_inter_nz=32 --mapper_inter_layer=1 --wandb=True --gen_image_in_gpu=True --isnet_batch_size=128 --time_limit=9999
+    
+    learning-prior command : 
+    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=learning-prior --batch_size=128 --epochs=100 --pretrain_epoch=0 --latent_dim=32 --log_interval=100 --mapper_inter_nz=32 --mapper_inter_layer=1 --wandb=True --gen_image_in_gpu=True --isnet_batch_size=128 --time_limit=9999
     
     '''
     
@@ -286,8 +423,15 @@ if __name__ == "__main__":
     parser.add_argument('--mapper_inter_layer', type=int, default=1)
     parser.add_argument('--wandb', type=bool, default=False)
     parser.add_argument('--gen_image_in_gpu', type=bool, default=False)
+    parser.add_argument('--time_check', type=bool, default=False)
+    parser.add_argument('--time_limit', type=int, default=0)
     args = parser.parse_args()
 
     if args.model_name == 'mask_aae':
         args.has_mask_layer = True
+        
+    if args.time_check or args.time_limit : 
+        assert args.log_interval == args.epochs, \
+            "if you use time_check or time_limit option, metric cannot be calculated in the middle and can only be calculated at the end[Recomendation : set log_interval=%d]" % epochs
+        
     main(args)

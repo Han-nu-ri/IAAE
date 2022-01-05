@@ -193,6 +193,19 @@ def update_discriminator(d_optimizer, each_batch, encoder, decoder, discriminato
     d_optimizer.step()
     return d_loss.data
 
+def update_discriminator_with_mappedz(d_optimizer, each_batch, encoder, decoder, mapper, discriminator, latent_dim, distribution):
+    d_optimizer.zero_grad()
+    batch_size = each_batch.size(0)
+    z_prior = Variable(torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))).cuda()
+    mappedz = mapper(z_prior)
+    z_posterior = encoder(each_batch)
+    if decoder.has_mask_layer:
+        z_prior = torch.mul(z_prior, decoder.mask_vector)
+        z_posterior = torch.mul(z_posterior, decoder.mask_vector)
+    d_loss = -torch.mean(torch.log(discriminator(z_prior)) + torch.log(1 - discriminator(mappedz)))
+    d_loss.backward(retain_graph=True)
+    d_optimizer.step()
+    return d_loss.data
 
 def update_generator(g_optimizer, each_batch, encoder, decoder, discriminator):
     g_optimizer.zero_grad()
@@ -205,6 +218,7 @@ def update_generator(g_optimizer, each_batch, encoder, decoder, discriminator):
     return g_loss.data
 
 
+
 def update_aae(ae_optimizer, args, d_optimizer, decoder, discriminator, each_batch, encoder, g_optimizer, latent_dim):
     r_loss = update_autoencoder(ae_optimizer, each_batch, encoder, decoder)
     d_loss = update_discriminator(d_optimizer, each_batch, encoder, decoder, discriminator, latent_dim,
@@ -212,11 +226,52 @@ def update_aae(ae_optimizer, args, d_optimizer, decoder, discriminator, each_bat
     g_loss = update_generator(g_optimizer, each_batch, encoder, decoder, discriminator)
     return d_loss, g_loss, r_loss
 
+def update_aae_with_mappedz(ae_optimizer, args, d_optimizer, decoder, discriminator, mapper, each_batch, encoder, g_optimizer, latent_dim):
+    r_loss = update_autoencoder(ae_optimizer, each_batch, encoder, decoder)
+    d_loss = update_discriminator_with_mappedz(d_optimizer, each_batch, encoder, decoder, \
+                                               mapper, discriminator, latent_dim, distribution)
+    g_loss = update_generator(g_optimizer, each_batch, encoder, decoder, discriminator)
+    return d_loss, g_loss, r_loss
+
+def update_mapper_with_discriminator_forpl(dpl_optimizer, decoder_optimizer, m_optimizer, discriminator_forpl, decoder, mapper, each_batch, latent_dim) :
+    #discriminator_forpl은 x를 True로, decoder(mapper(noise))를 False로 구별한다
+    #mapper와 decoder는 discriminator를 속이려고 한다
+    
+    batch_size = each_batch.size(0)
+    noise = torch.randn(batch_size, latent_dim, device='cuda')
+    mapped_noise = mapper(noise)
+    fake_img = decoder(mapped_noise).view(batch_size,-1) # discriminator sturcture cannot control 2D image but only flatten tensor
+    
+    #train discriminator. make D(x) -->Positive and D(decoder(mapped_noise))-->Negative
+    d_loss = -torch.mean(torch.log(discriminator_forpl(each_batch)) + torch.log(1 - discriminator_forpl(fake_img)))
+    dpl_optimizer.zero_grad()
+    d_loss.backward()
+    dpl_optimizer.step()
+    
+    #train mapper and decoder. make D(decoder(mapped_noise))-->Positive
+    mapped_noise = mapper(noise)
+    fake_img = decoder(mapped_noise).view(batch_size,-1)
+    m_loss = -torch.mean(torch.log(discriminator_forpl(fake_img)))
+    m_optimizer.zero_grad()
+    decoder_optimizer.zero_grad()
+    m_loss.backward()
+    m_optimizer.step()
+    decoder_optimizer.step()
+    
+    return d_loss, m_loss
+
 
 def get_nonprior_model_and_optimizer(latent_dim, mapper_inter_nz, mapper_inter_layer):
     mapper = Mapping(latent_dim, mapper_inter_nz, mapper_inter_layer).cuda()
     m_optimizer = torch.optim.Adam(mapper.parameters(), lr=1e-4)
     return mapper, m_optimizer
+
+def get_learning_prior_model_and_optimizer(img, mapper_inter_nz, mapper_inter_layer):
+    mapper = Mapping(latent_dim, mapper_inter_nz, mapper_inter_layer).cuda()
+    m_optimizer = torch.optim.Adam(mapper.parameters(), lr=1e-4)
+    discriminator = Discriminator(latent_dim).cuda()
+    d_optimizier = torch.optim.Adam(discriminator.parameters(), lr=1e-4)
+    return mapper, m_optimizer, discriminator, d_optimizier
 
 
 def get_aae_model_and_optimizer(latent_dim, image_size, has_mask_layer):
