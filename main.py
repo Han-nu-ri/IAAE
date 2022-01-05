@@ -187,7 +187,7 @@ def pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader):
         print("There are no pretrained autoencoder, start pretraining.")
         for i in range(0, args.pretrain_epoch):
             loss_r = 0
-            for each_batch in tqdm.tqdm(train_loader):
+            for each_batch in tqdm.tqdm(train_loader, desc="pretrain AE[%d/%d]" % (i, args.pretrain_epoch)):
                 each_batch = each_batch[0].to('cuda')
                 loss_r = model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder)
             print(f"epoch: {i}, loss: {loss_r}")
@@ -227,6 +227,8 @@ def main(args):
     if args.model_name == 'non-prior':
         mapper, m_optimizer = model.get_nonprior_model_and_optimizer(args.latent_dim, args.mapper_inter_nz, args.mapper_inter_layer)
 
+    pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader)    
+        
     for i in range(0, args.epochs):
         d_loss, g_loss, r_loss = 0, 0, 0
         encoded_feature_list = []
@@ -259,7 +261,7 @@ if __name__ == "__main__":
     
     '''
     vanilla command : 
-    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=aae --batch_size=128 --epochs=100 --latent_dim=32 --log_interval=10 --mapper_inter_nz=32 --mapper_inter_layer=1 --wandb=True --gen_image_in_gpu=True
+    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=aae --batch_size=128 --epochs=100 --latent_dim=32 --log_interval=10 --mapper_inter_nz=32 --mapper_inter_layer=1 --wandb=True --gen_image_in_gpu=True --isnet_batch_size=128
     
     '''
     
@@ -275,7 +277,7 @@ if __name__ == "__main__":
     parser.add_argument('--has_mask_layer', type=bool, default=False)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--isnet_batch_size', type=int, default=128)
+    parser.add_argument('--isnet_batch_size', type=int, default=16)
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--pretrain_epoch', type=int, default=10)
     parser.add_argument('--latent_dim', type=int, default=32)
