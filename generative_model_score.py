@@ -212,7 +212,7 @@ class GenerativeModelScore:
                         if model_name == "mimic":
                             z = torch.rand(batch_size, latent_dim, device=device) * 2 - 1
                             fake_images = decoder(mapper(z))
-                        elif model_name == 'non-prior':
+                        elif model_name == ['non-prior', 'learning-prior']:
                             z = torch.randn(batch_size, latent_dim, device=device)
                             fake_images = decoder(mapper(z))
                         else:

@@ -74,7 +74,7 @@ class Decoder(nn.Module):
 
         self.has_mask_layer = has_mask_layer
         if has_mask_layer:
-            self.theta_vector = torch.rand(nz, requires_grad=True).cuda()
+            self.theta_vector = torch.rand(nz, requires_grad=True)
             self.mask_vector = torch.max(torch.zeros_like(self.theta_vector), 1 - torch.exp(-self.theta_vector))
 
     def forward(self, input):
@@ -180,10 +180,10 @@ def update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encode
     return r_loss
 
 
-def update_discriminator(d_optimizer, each_batch, encoder, decoder, discriminator, latent_dim, distribution):
+def update_discriminator(args, d_optimizer, each_batch, encoder, decoder, discriminator):
     d_optimizer.zero_grad()
     batch_size = each_batch.size(0)
-    z_prior = Variable(torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))).cuda()
+    z_prior = Variable(torch.FloatTensor(prior_factory.get_sample(args.distribution, batch_size, args.latent_dim))).to(args.device)
     z_posterior = encoder(each_batch)
     if decoder.has_mask_layer:
         z_prior = torch.mul(z_prior, decoder.mask_vector)
@@ -193,10 +193,10 @@ def update_discriminator(d_optimizer, each_batch, encoder, decoder, discriminato
     d_optimizer.step()
     return d_loss.data
 
-def update_discriminator_with_mappedz(d_optimizer, each_batch, encoder, decoder, mapper, discriminator, latent_dim, distribution):
+def update_discriminator_with_mappedz(args, d_optimizer, each_batch, encoder, decoder, mapper, discriminator):
     d_optimizer.zero_grad()
     batch_size = each_batch.size(0)
-    z_prior = Variable(torch.FloatTensor(prior_factory.get_sample(distribution, batch_size, latent_dim))).cuda()
+    z_prior = Variable(torch.FloatTensor(prior_factory.get_sample(args.distribution, batch_size, args.latent_dim))).to(args.device)
     mappedz = mapper(z_prior)
     z_posterior = encoder(each_batch)
     if decoder.has_mask_layer:
@@ -221,24 +221,24 @@ def update_generator(g_optimizer, each_batch, encoder, decoder, discriminator):
 
 def update_aae(ae_optimizer, args, d_optimizer, decoder, discriminator, each_batch, encoder, g_optimizer, latent_dim):
     r_loss = update_autoencoder(ae_optimizer, each_batch, encoder, decoder)
-    d_loss = update_discriminator(d_optimizer, each_batch, encoder, decoder, discriminator, latent_dim,
-                                  args.distribution)
+    d_loss = update_discriminator(args, d_optimizer, each_batch, encoder, decoder, discriminator)
     g_loss = update_generator(g_optimizer, each_batch, encoder, decoder, discriminator)
     return d_loss, g_loss, r_loss
 
-def update_aae_with_mappedz(ae_optimizer, args, d_optimizer, decoder, discriminator, mapper, each_batch, encoder, g_optimizer, latent_dim):
+def update_aae_with_mappedz(args, ae_optimizer, d_optimizer, decoder, discriminator, mapper, each_batch, encoder, g_optimizer):
     r_loss = update_autoencoder(ae_optimizer, each_batch, encoder, decoder)
-    d_loss = update_discriminator_with_mappedz(d_optimizer, each_batch, encoder, decoder, \
-                                               mapper, discriminator, latent_dim, distribution)
+    d_loss = update_discriminator_with_mappedz(args, d_optimizer, each_batch, encoder, decoder, \
+                                               mapper, discriminator)
     g_loss = update_generator(g_optimizer, each_batch, encoder, decoder, discriminator)
     return d_loss, g_loss, r_loss
 
-def update_mapper_with_discriminator_forpl(dpl_optimizer, decoder_optimizer, m_optimizer, discriminator_forpl, decoder, mapper, each_batch, latent_dim) :
+def update_mapper_with_discriminator_forpl(args, dpl_optimizer, decoder_optimizer, m_optimizer, discriminator_forpl, decoder, mapper, each_batch) :
     #discriminator_forpl은 x를 True로, decoder(mapper(noise))를 False로 구별한다
     #mapper와 decoder는 discriminator를 속이려고 한다
     
     batch_size = each_batch.size(0)
-    noise = torch.randn(batch_size, latent_dim, device='cuda')
+    each_batch = each_batch.view(batch_size, -1)
+    noise = torch.randn(batch_size, args.latent_dim, device=args.device)
     mapped_noise = mapper(noise)
     fake_img = decoder(mapped_noise).view(batch_size,-1) # discriminator sturcture cannot control 2D image but only flatten tensor
     
@@ -258,27 +258,27 @@ def update_mapper_with_discriminator_forpl(dpl_optimizer, decoder_optimizer, m_o
     m_optimizer.step()
     decoder_optimizer.step()
     
-    return d_loss, m_loss
+    return d_loss
 
 
-def get_nonprior_model_and_optimizer(latent_dim, mapper_inter_nz, mapper_inter_layer):
-    mapper = Mapping(latent_dim, mapper_inter_nz, mapper_inter_layer).cuda()
+def get_nonprior_model_and_optimizer(args):
+    mapper = Mapping(args.latent_dim, args.mapper_inter_nz, args.mapper_inter_layer).to(args.device)
     m_optimizer = torch.optim.Adam(mapper.parameters(), lr=1e-4)
     return mapper, m_optimizer
 
-def get_learning_prior_model_and_optimizer(img, mapper_inter_nz, mapper_inter_layer):
-    mapper = Mapping(latent_dim, mapper_inter_nz, mapper_inter_layer).cuda()
+def get_learning_prior_model_and_optimizer(args):
+    mapper = Mapping(args.latent_dim, args.mapper_inter_nz, args.mapper_inter_layer).to(args.device)
     m_optimizer = torch.optim.Adam(mapper.parameters(), lr=1e-4)
-    discriminator = Discriminator(latent_dim).cuda()
-    d_optimizier = torch.optim.Adam(discriminator.parameters(), lr=1e-4)
-    return mapper, m_optimizer, discriminator, d_optimizier
+    discriminator_forpl = Discriminator(args.image_size * args.image_size * 3).to(args.device)
+    dpl_optimizer = torch.optim.Adam(discriminator_forpl.parameters(), lr=1e-4)
+    return mapper, m_optimizer, discriminator_forpl, dpl_optimizer
 
 
-def get_aae_model_and_optimizer(latent_dim, image_size, has_mask_layer):
-    encoder = Encoder(latent_dim, image_size).cuda()
-    decoder = Decoder(latent_dim, image_size, has_mask_layer=has_mask_layer).cuda()
+def get_aae_model_and_optimizer(args):
+    encoder = Encoder(args.latent_dim, args.image_size).to(args.device)
+    decoder = Decoder(args.latent_dim, args.image_size, has_mask_layer=args.has_mask_layer).to(args.device)
     mapper = None
-    discriminator = Discriminator(latent_dim).cuda()
+    discriminator = Discriminator(args.latent_dim).to(args.device)
     ae_optimizer = torch.optim.Adam(itertools.chain(encoder.parameters(), decoder.parameters()), lr=1e-4)
     d_optimizer = torch.optim.Adam(discriminator.parameters(), lr=1e-4)
     g_optimizer = torch.optim.Adam(encoder.parameters(), lr=1e-4)
@@ -311,13 +311,12 @@ def update_mimic(m_optimizer, uniform_input, sorted_encoded_feature, mapper):
     return loss.item()
 
 
-def update_posterior_part(mapper, discriminator, m_optimizer, d_optimizer, encoded_feature, latent_dim) : 
+def update_posterior_part(args, mapper, discriminator, m_optimizer, d_optimizer, encoded_feature) : 
     #discriminator는 encoded feature를 True로, mapper(noise)를 False로 구별한다
     #mapper는 discriminator를 속이려고 한다
     
-    
     batch_size = encoded_feature.size(0)
-    noise = torch.randn(batch_size, latent_dim, device='cuda')
+    noise = torch.randn(batch_size, args.latent_dim, device=args.device)
     mapped_noise = mapper(noise)
     
     #train discriminator. make D(encoded_feature)-->Positive and D(mapped_noise)-->Negative
@@ -336,12 +335,12 @@ def update_posterior_part(mapper, discriminator, m_optimizer, d_optimizer, encod
     
 
 
-def train_mapper(encoder, mapper, device, lr, batch_size, encoded_feature_list):
-    m_optimizer = torch.optim.Adam(mapper.parameters(), lr=lr, weight_decay=1e-3)
+def train_mapper(args, encoder, mapper, encoded_feature_list):
+    m_optimizer = torch.optim.Adam(mapper.parameters(), lr=args.lr, weight_decay=1e-3)
     encoder.eval()
-    feature_tensor_dloader = encoded_feature_to_dl(torch.cat(encoded_feature_list), batch_size)
+    feature_tensor_dloader = encoded_feature_to_dl(torch.cat(encoded_feature_list), args.batch_size)
     for each_batch, label_feature in tqdm.tqdm(feature_tensor_dloader):
-        uniform_input = each_batch.to(device)
-        sorted_encoded_feature = label_feature.to(device)
+        uniform_input = each_batch.to(args.device)
+        sorted_encoded_feature = label_feature.to(args.device)
         m_loss = update_mimic(m_optimizer, uniform_input, sorted_encoded_feature, mapper)
     return m_loss
