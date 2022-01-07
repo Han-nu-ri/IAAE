@@ -104,7 +104,7 @@ def aae_latent_pca_plt(z, E_x, dim=1) :
     pca_z = torch.matmul(z, V[:, :dim])
     pca_Ex = torch.matmul(E_x, V[:, :dim])
     sns.kdeplot(pca_Ex.flatten().numpy(), label='E(x):optimize', alpha=0.6, color='r', ax=ax1)
-    sns.kdeplot(pca_z.flatten().numpy(), label='Z-target', alpha=0.6, color='b', ax=ax1)
+    sns.kdeplot(pca_z.flatten().numpy(), label='Z:target', alpha=0.6, color='b', ax=ax1)
     ax1.legend()
     ax1.set_title('latent kde in pca to %d dim ' % dim)
     return fig1
@@ -406,7 +406,7 @@ def main(args):
                     model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature=True)
                 encoded_feature_list.append(encoded_feature)                
             elif args.model_name == 'non-prior':
-                r_loss, encoded_feature = model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature_gpu=True)
+                r_loss, encoded_feature = model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature_gpu=True, retain_graph=False)
                 d_loss, m_loss = model.update_posterior_part(args, mapper, discriminator, m_optimizer, d_optimizer, encoded_feature)            
             elif args.model_name == 'learning-prior' : 
                 d_loss, g_loss, r_loss = model.update_aae_with_mappedz(args, ae_optimizer, d_optimizer, decoder, discriminator, mapper, each_batch, encoder, g_optimizer)

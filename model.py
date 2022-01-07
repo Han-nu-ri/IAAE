@@ -162,7 +162,7 @@ class Mapping(nn.Module):
     
     
 
-def update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature=False, return_encoded_feature_gpu=False):
+def update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature=False, return_encoded_feature_gpu=False, retrain_graph=True):
     ae_optimizer.zero_grad()
     z_posterior = encoder(each_batch)
     if decoder.has_mask_layer:
@@ -172,7 +172,7 @@ def update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encode
     r_loss = pixel_wise_loss(fake_batch, each_batch)
     if decoder.has_mask_layer:
         r_loss += 0.1 * torch.sum(torch.abs(torch.mul(1 - decoder.mask_vector, decoder.mask_vector)))
-    r_loss.backward(retain_graph=True)
+    r_loss.backward(retain_graph=retrain_graph)
     ae_optimizer.step()
     if return_encoded_feature:
         return r_loss, z_posterior.detach().cpu()
