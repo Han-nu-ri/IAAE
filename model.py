@@ -160,6 +160,7 @@ class Mapping(nn.Module):
             input = layer(input)
         return input
     
+    
 
 def update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature=False, return_encoded_feature_gpu=False):
     ae_optimizer.zero_grad()
@@ -326,6 +327,7 @@ def update_posterior_part(args, mapper, discriminator, m_optimizer, d_optimizer,
     d_optimizer.step()
     
     #train mapper. make D(mapped_noise)-->Positive
+    noise = torch.randn(batch_size, args.latent_dim, device=args.device)
     m_loss = -torch.mean(torch.log(discriminator(mapper(noise))))
     m_optimizer.zero_grad()
     m_loss.backward()

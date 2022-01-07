@@ -98,38 +98,44 @@ def learningprior_latent_plt(z, E_x, M_z, fnum) :
     return fig1 
 
 def aae_latent_pca_plt(z, E_x, dim=1) : 
-    plt.clf()
+    fig1, ax1 = plt.subplots()
     all_data = torch.cat([z, E_x])
     U, S, V = torch.pca_lowrank(all_data)
     pca_z = torch.matmul(z, V[:, :dim])
     pca_Ex = torch.matmul(E_x, V[:, :dim])
-    sns.kdeplot(pca_Ex.flatten().numpy(), label='E(x):optimize', alpha=0.6, color='r')
-    plot = sns.kdeplot(pca_z.flatten().numpy(), label='Z-target', alpha=0.6, color='b')
-    return plot
+    sns.kdeplot(pca_Ex.flatten().numpy(), label='E(x):optimize', alpha=0.6, color='r', ax=ax1)
+    sns.kdeplot(pca_z.flatten().numpy(), label='Z-target', alpha=0.6, color='b', ax=ax1)
+    ax1.legend()
+    ax1.set_title('latent kde in pca to %d dim ' % dim)
+    return fig1
 
 def nonprior_latent_pca_plt(z, E_x, M_z, dim=1) : 
-    plt.clf()
+    fig1, ax1 = plt.subplots()
     all_data = torch.cat([E_x, M_z])
     U, S, V = torch.pca_lowrank(all_data)
     pca_z = torch.matmul(z, V[:, :dim])
     pca_Ex = torch.matmul(E_x, V[:, :dim])
     pca_Mz = torch.matmul(M_z, V[:, :dim])
-    sns.kdeplot(pca_Mz.flatten().numpy(), label='M(z):optimize', alpha=0.6, color='r')
-    sns.kdeplot(pca_Ex.flatten().numpy(), label='E(x):target', alpha=0.6, color='b')
-    plot = sns.kdeplot(pca_z.flatten().numpy(), label='z:input', alpha=0.6, color='g')
-    return plot
+    sns.kdeplot(pca_Mz.flatten().numpy(), label='M(z):optimize', alpha=0.6, color='r', ax=ax1)
+    sns.kdeplot(pca_Ex.flatten().numpy(), label='E(x):target', alpha=0.6, color='b', ax=ax1)
+    sns.kdeplot(pca_z.flatten().numpy(), label='z:input', alpha=0.6, color='g', ax=ax1)
+    ax1.legend()
+    ax1.set_title('latent kde in pca to %d dim ' % dim)
+    return fig1
 
 def learningprior_latent_pca_plt(z, E_x, M_z, dim=1) : 
-    plt.clf()
+    fig1, ax1 = plt.subplots()
     all_data = torch.cat([E_x, M_z])
     U, S, V = torch.pca_lowrank(all_data)
     pca_z = torch.matmul(z, V[:, :dim])
     pca_Ex = torch.matmul(E_x, V[:, :dim])
     pca_Mz = torch.matmul(M_z, V[:, :dim])
-    sns.kdeplot(pca_Ex.flatten().numpy(), label='E(x):optimize', alpha=0.6, color='r')
-    sns.kdeplot(pca_Mz.flatten().numpy(), label='M(z):target', alpha=0.6, color='b')
-    plot = sns.kdeplot(pca_z.flatten().numpy(), label='z:input', alpha=0.6, color='g')
-    return plot
+    sns.kdeplot(pca_Ex.flatten().numpy(), label='E(x):optimize', alpha=0.6, color='r', ax=ax1)
+    sns.kdeplot(pca_Mz.flatten().numpy(), label='M(z):target', alpha=0.6, color='b', ax=ax1)
+    sns.kdeplot(pca_z.flatten().numpy(), label='z:input', alpha=0.6, color='g', ax=ax1)
+    ax1.legend()
+    ax1.set_title('latent kde in pca to %d dim ' % dim)
+    return fig1
     
 def latent_plot(args, dataset, encoder, mapper, num=2048) :
     # gather x sample, E(x)
@@ -149,25 +155,28 @@ def latent_plot(args, dataset, encoder, mapper, num=2048) :
     #case aae. plot{E(x), Gaussian}. E(x) imitate Gaussian. 
     if args.model_name in ['aae', 'mask_aae'] : 
         z = torch.randn(*ex_tensor.shape)
+        pca_plt = aae_latent_pca_plt(z, ex_tensor)
         for i in range(z.size(1)) :
             plt_list.append(aae_latent_plt(z[:,i],ex_tensor[:,i], i))
-        pca_plt = aae_latent_pca_plt(z, ex_tensor)
+       
     
     #case non-prior. plot{Gaussian, M(z), E(x)} M(z) imitate E(x).
     elif args.model_name in ['non-prior'] : 
         z = torch.randn(*ex_tensor.shape)
         M_z = mapper(z.to(args.device)).detach().cpu()
+        pca_plt = nonprior_latent_pca_plt(z, ex_tensor, M_z)
         for i in range(z.size(1)) :
             plt_list.append(nonprior_latent_plt(z[:,i],ex_tensor[:,i], M_z[:,i], i))
-        pca_plt = nonprior_latent_pca_plt(z, ex_tensor, M_z)
+        
     
     #case learning-prior. plot{Gaussian, M(z), E(x)} E(x) imitate M(z)
     elif args.model_name in ['learning-prior'] : 
         z = torch.randn(*ex_tensor.shape)
         M_z = mapper(z.to(args.device)).detach().cpu()
+        pca_plt = learningprior_latent_pca_plt(z, ex_tensor, M_z)
         for i in range(z.size(1)) :
             plt_list.append(learningprior_latent_plt(z[:,i],ex_tensor[:,i], M_z[:,i], i))
-        pca_plt = learningprior_latent_pca_plt(z, ex_tensor, M_z)
+        
     
         
     return plt_list, pca_plt
@@ -302,9 +311,10 @@ def save_pretrain_autoencoder_model(args, decoder, encoder, pretrain_epoch):
 
 
 def pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader):
-    global device
-    encoder, decoder, is_pretrained = load_pretrain_autoencoder_model(args, encoder, decoder, args.pretrain_epoch)
-    if is_pretrained:
+    if args.load_pretrain_model : 
+        encoder, decoder, is_pretrained = load_pretrain_autoencoder_model(args, encoder, decoder, args.pretrain_epoch)
+    else : is_pretrained = False
+    if is_pretrained :
         print("Using pretrained autoencoder.")
     else:
         print("There are no pretrained autoencoder, start pretraining.")
@@ -428,7 +438,7 @@ if __name__ == "__main__":
     
     
     non-prior command : 
-    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=non-prior --batch_size=128 --epochs=300 --pretrain_epoch=10 --latent_dim=32 --log_interval=300 --mapper_inter_nz=32 --mapper_inter_layer=1 --wandb=True --gen_image_in_gpu=True --isnet_batch_size=128 --time_limit=9999
+    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=non-prior --batch_size=128 --epochs=300 --pretrain_epoch=10 --load_pretrain_model=False --latent_dim=32 --log_interval=300 --mapper_inter_nz=32 --mapper_inter_layer=1 --wandb=True --gen_image_in_gpu=True --isnet_batch_size=128 --time_limit=9999
     
     learning-prior command : 
     python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=learning-prior --batch_size=128 --epochs=300 --pretrain_epoch=0 --latent_dim=32 --log_interval=300 --mapper_inter_nz=32 --mapper_inter_layer=1 --gen_image_in_gpu=True --isnet_batch_size=128 --time_limit=3248 --wandb=True
@@ -454,6 +464,7 @@ if __name__ == "__main__":
     parser.add_argument('--log_interval', type=int, default=10)
     parser.add_argument('--mapper_inter_nz', type=int, default=32)
     parser.add_argument('--mapper_inter_layer', type=int, default=1)
+    parser.add_argument('--load_pretrain_model', type=bool, default=False)
     parser.add_argument('--wandb', type=bool, default=False)
     parser.add_argument('--gen_image_in_gpu', type=bool, default=False)
     parser.add_argument('--time_check', type=bool, default=False)
