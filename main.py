@@ -22,11 +22,12 @@ matplotlib.use('Agg')
 start_time = None
 
 
-def load_inception_model(train_loader, dataset, image_size):
+def load_inception_model(train_loader, dataset, image_size, environment):
     global device
-    # TODO: 경로 args로 받도록 개선
-    #icm_path = '../../../inception_model_info/'
-    icm_path = './inception_model_info/'
+    if environment == 'nuri':
+        icm_path = './inception_model_info/'
+    else:
+        icm_path = '../../../inception_model_info/'
     inception_model_score.lazy_mode(True)
     real_images_info_file_name = hashlib.md5(str(train_loader.dataset).encode()).hexdigest() + '.pickle'
     os.makedirs('inception_model_info', exist_ok=True)
@@ -35,7 +36,7 @@ def load_inception_model(train_loader, dataset, image_size):
         inception_model_score.load_real_images_info(icm_path + real_images_info_file_name)
     else:
         inception_model_score.model_to(device)
-        inception_model_score.lazy_forward(dataset, image_size, real_forward=True, device=device)
+        inception_model_score.lazy_forward(dataset, image_size, real_forward=True, device=device, environment=environment)
         inception_model_score.calculate_real_image_statistics()
         inception_model_score.save_real_images_info(icm_path + real_images_info_file_name)
         inception_model_score.model_to('cpu')
@@ -139,7 +140,7 @@ def learningprior_latent_pca_plt(z, E_x, M_z, dim=1) :
     
 def latent_plot(args, dataset, encoder, mapper, num=2048) :
     # gather x sample, E(x)
-    train_loader, _ = data_helper.get_data(dataset, args.batch_size, args.image_size)
+    train_loader, _ = data_helper.get_data(dataset, args.batch_size, args.image_size, args.environment)
     ex_list = []
     x_list = []
     for each_batch in train_loader : 
@@ -184,7 +185,7 @@ def latent_plot(args, dataset, encoder, mapper, num=2048) :
     
 
 def log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder, g_loss, i, inception_model_score, r_loss,
-                                   dataset, distribution, latent_dim, model_name, mapper=None):
+                                   dataset, distribution, latent_dim, model_name, environment, mapper=None):
     
     global start_time
     end_time = time.time()
@@ -197,7 +198,8 @@ def log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder
                                                               mapper, generative_model_gpu=False)
     inception_model_score.lazy_forward(dataset, decoder=decoder, distribution=distribution, latent_dim=latent_dim,\
                                        real_forward=False, device=args.device, model_name=model_name, mapper=mapper, \
-                                       gen_image_in_gpu=args.gen_image_in_gpu, batch_size=args.isnet_batch_size)
+                                       gen_image_in_gpu=args.gen_image_in_gpu, batch_size=args.isnet_batch_size,
+                                       environment=environment)
     inception_model_score.calculate_fake_image_statistics()
     metrics, feature_pca_plot, real_pca, fake_pca = \
         inception_model_score.calculate_generative_score(feature_pca_plot=True)
@@ -335,7 +337,7 @@ def log_and_write_pca(args, d_loss, decoder, discriminator, encoder, g_loss, i, 
         encoder, decoder, discriminator, mapper, real_pca, fake_pca = \
             log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder, g_loss, i,
                                            inception_model_score, r_loss, args.dataset, args.distribution,
-                                           args.latent_dim, args.model_name, mapper)
+                                           args.latent_dim, args.model_name, args.environment, mapper)
         if i == (args.epochs - 1):
             write_pca_data(args.model_name, args.dataset, args.image_size, args.distribution, i, real_pca, fake_pca)
             write_feature(args.model_name, args.dataset, args.image_size, args.distribution, i,
@@ -351,7 +353,7 @@ def force_log_and_write_pca(args, d_loss, decoder, discriminator, encoder, g_los
     encoder, decoder, discriminator, mapper, real_pca, fake_pca = \
             log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder, g_loss, i,
                                            inception_model_score, r_loss, args.dataset, args.distribution,
-                                           args.latent_dim, args.model_name, mapper)
+                                           args.latent_dim, args.model_name, args.environment, mapper)
        
     write_pca_data(args.model_name, args.dataset, args.image_size, args.distribution, i, real_pca, fake_pca)
     write_feature(args.model_name, args.dataset, args.image_size, args.distribution, i,
@@ -368,12 +370,12 @@ def timeout(time_limit, start_time) :
 
 
 def main(args):
-    train_loader, _ = data_helper.get_data(args.dataset, args.batch_size, args.image_size)
+    train_loader, _ = data_helper.get_data(args.dataset, args.batch_size, args.image_size, args.environment)
     if args.wandb:
         wandb_name = "%s[%d]_%s" % (args.dataset, args.image_size, args.model_name)
         wandb.login()
         wandb.init(project="AAE", config=args, name=wandb_name)
-    inception_model_score = load_inception_model(train_loader, args.dataset, args.image_size)
+    inception_model_score = load_inception_model(train_loader, args.dataset, args.image_size, args.environment)
     ae_optimizer, d_optimizer, decoder, discriminator, encoder, g_optimizer, mapper = \
         model.get_aae_model_and_optimizer(args)
     if args.model_name == 'mimic':
@@ -406,9 +408,9 @@ def main(args):
                     model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature=True)
                 encoded_feature_list.append(encoded_feature)                
             elif args.model_name == 'non-prior':
-                r_loss, encoded_feature = model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature_gpu=True, retain_graph=False)
+                r_loss, encoded_feature = model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature_gpu=True, flag_retain_graph=False)
                 d_loss, m_loss = model.update_posterior_part(args, mapper, discriminator, m_optimizer, d_optimizer, encoded_feature)            
-            elif args.model_name == 'learning-prior' : 
+            elif args.model_name == 'learning-prior':
                 d_loss, g_loss, r_loss = model.update_aae_with_mappedz(args, ae_optimizer, d_optimizer, decoder, discriminator, mapper, each_batch, encoder, g_optimizer)
                 d_loss += model.update_mapper_with_discriminator_forpl(args, dpl_optimizer, decoder_optimizer, m_optimizer, discriminator_forpl, decoder, mapper, each_batch)
             if args.model_name == 'mimic':
@@ -469,6 +471,7 @@ if __name__ == "__main__":
     parser.add_argument('--gen_image_in_gpu', type=bool, default=False)
     parser.add_argument('--time_check', type=bool, default=False)
     parser.add_argument('--time_limit', type=int, default=0)
+    parser.add_argument('--environment', type=str, default='yhs')
     args = parser.parse_args()
 
     if args.model_name == 'mask_aae':

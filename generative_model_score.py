@@ -190,9 +190,9 @@ class GenerativeModelScore:
 
     def lazy_forward(self, dataset, image_size=32, batch_size=16,
                      decoder=None, distribution=None, latent_dim=None, real_forward=True, device='cpu',
-                     model_name='aae', mapper=None, gen_image_in_gpu=False):
+                     model_name='aae', mapper=None, gen_image_in_gpu=False, environment='yhs'):
         assert self.lazy, "lazy_forward only run in lazy mode. call lazy_mode() first."
-        train_loader, _ = data_helper.get_data(dataset, batch_size, image_size)
+        train_loader, _ = data_helper.get_data(dataset, batch_size, image_size, environment)
         if real_forward:
             print("generate real images info")
             for each_batch in tqdm.tqdm(train_loader):
