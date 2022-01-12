@@ -398,7 +398,8 @@ def main(args):
         
     global start_time
     start_time = time.time()
-    pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader)    
+    if args.pretrain_epoch > 0:
+        pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader)
         
     for i in range(0, args.epochs):
         if args.time_limit and timeout(args.time_limit, start_time) : break
