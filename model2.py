@@ -142,16 +142,15 @@ class Mapping(nn.Module):
     def __init__(self, in_out_nz, mapper_inter_nz, mapper_inter_layer):
         super(Mapping, self).__init__()
         linear = nn.ModuleList()
-        linear.append(nn.BatchNorm1d(in_out_nz))
         if mapper_inter_layer >= 2:
             linear.append(nn.Linear(in_features=in_out_nz, out_features=mapper_inter_nz))
-            linear.append(nn.BatchNorm1d(mapper_inter_nz))
-            linear.append(nn.CELU())
+            linear.append(nn.ELU())
             for i in range(mapper_inter_layer-2):
                 linear.append(nn.Linear(in_features=mapper_inter_nz, out_features=mapper_inter_nz))
-                linear.append(nn.CELU())
+                linear.append(nn.ELU())
 
             linear.append(nn.Linear(in_features=mapper_inter_nz, out_features=in_out_nz))
+            linear.append(nn.ELU())
         else:
             linear.append(nn.Linear(in_features=in_out_nz, out_features=in_out_nz))
         self.linear = linear
