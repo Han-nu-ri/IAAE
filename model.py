@@ -168,7 +168,8 @@ def update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encode
     if decoder.has_mask_layer:
         z_posterior = torch.mul(z_posterior, decoder.mask_vector)
     fake_batch = decoder(z_posterior)
-    pixel_wise_loss = torch.nn.L1Loss(reduction='mean')
+    #pixel_wise_loss = torch.nn.L1Loss(reduction='mean')
+    pixel_wise_loss = torch.nn.MSELoss()
     r_loss = pixel_wise_loss(fake_batch, each_batch)
     if decoder.has_mask_layer:
         r_loss += 0.1 * torch.sum(torch.abs(torch.mul(1 - decoder.mask_vector, decoder.mask_vector)))
