@@ -21,7 +21,6 @@ from utils import *
 import seaborn as sns
 import time
 matplotlib.use('Agg')
-start_time = None
 
 
 def main(args):
@@ -49,12 +48,13 @@ def main(args):
         
     
     args.start_time = time.time()
+    
     if args.pretrain_epoch > 0:
         pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader)
     
     log_dict, log, log2 = {}, {}, {}
     for i in range(0, args.epochs):
-        if args.time_limit and timeout(args.time_limit, start_time) : break
+        if args.time_limit and timeout(args.time_limit, args.start_time) : break
         d_loss, g_loss, r_loss = 0, 0, 0
         encoded_feature_list = []
         for each_batch in tqdm.tqdm(train_loader, desc="train[%d/%d]" % (i, args.epochs)):

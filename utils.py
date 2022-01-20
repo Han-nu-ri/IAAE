@@ -175,7 +175,9 @@ def latent_plot(args, dataset, encoder, mapper, num=2048) :
         
     return plt_list, pca_plt
 
-    
+
+def log_index(wandb, i, log_dict) : 
+    wandb.log(log_dict, step=i)
 
 def log_index_with_inception_model(args, wandb, decoder, discriminator, encoder, i, inception_model_score, log_dict,
                                    dataset, distribution, latent_dim, model_name, environment, mapper=None):
@@ -200,6 +202,7 @@ def log_index_with_inception_model(args, wandb, decoder, discriminator, encoder,
     precision, recall, fid, inception_score_real, inception_score_fake, density, coverage = \
         metrics['precision'], metrics['recall'], metrics['fid'], metrics['real_is'], metrics['fake_is'], \
         metrics['density'], metrics['coverage']
+    
     log_dict.update({'IsNet feature': wandb.Image(feature_pca_plot),
                    "precision": precision,
                    "recall": recall,
@@ -212,13 +215,13 @@ def log_index_with_inception_model(args, wandb, decoder, discriminator, encoder,
                    "latent kde in pca" : wandb.Image(pca_plt),
                    "run time" : run_time
               })
-    wandb.log(log_dict, step=i)
+
     if decoder.has_mask_layer:
         mask_vector_2d_list = [[each_mask_element] for each_mask_element in decoder.mask_vector.cpu().detach().numpy()]
         mask_table = wandb.Table(data=mask_vector_2d_list, columns=["mask_value"])
         wandb.log({"mask_vector_hist": wandb.plot.histogram(mask_table, "mask_value", title="mask_vector_hist")}, step=i)
     inception_model_score.clear_fake()
-    return encoder, decoder, discriminator, mapper, real_pca, fake_pca
+    return encoder, decoder, discriminator, mapper, log_dict
 
 
 def swap_gpu_between_generative_model_and_inception_model(args, decoder, discriminator, encoder, inception_model_score,
@@ -353,16 +356,21 @@ def pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader):
 def log_and_write_pca(args, wandb, decoder, discriminator, encoder, i, inception_model_score, mapper, log_dict):
     generate_image_and_save_in_wandb(args, wandb, mapper, decoder, i, args.model_name, args.latent_dim, args.distribution,
                                          args.dataset)
+    
     if i % args.log_interval == 0 or i == (args.epochs - 1):
-        encoder, decoder, discriminator, mapper, real_pca, fake_pca = \
+        encoder, decoder, discriminator, mapper, log_dict = \
             log_index_with_inception_model(args, wandb, decoder, discriminator, encoder, i,
                                            inception_model_score, log_dict, args.dataset, args.distribution,
                                            args.latent_dim, args.model_name, args.environment, mapper)
-        if i == (args.epochs - 1):
-            write_pca_data(args.model_name, args.dataset, args.image_size, args.distribution, i, real_pca, fake_pca)
-            write_feature(args.model_name, args.dataset, args.image_size, args.distribution, i,
-                          inception_model_score.real_feature_np,
-                          inception_model_score.fake_feature_np)
+    log_index(wandb, i, log_dict)
+    
+    '''
+    if i == (args.epochs - 1):
+        write_pca_data(args.model_name, args.dataset, args.image_size, args.distribution, i, real_pca, fake_pca)
+        write_feature(args.model_name, args.dataset, args.image_size, args.distribution, i,
+                      inception_model_score.real_feature_np,
+                      inception_model_score.fake_feature_np)
+    '''
     return decoder, discriminator, encoder, mapper
 
 
@@ -370,15 +378,18 @@ def force_log_and_write_pca(args, wandb, decoder, discriminator, encoder, i, inc
     #same as log_and_write_pca but no condition
     generate_image_and_save_in_wandb(args, wandb, mapper, decoder, i, args.model_name, args.latent_dim, args.distribution,
                                          args.dataset)
-    encoder, decoder, discriminator, mapper, real_pca, fake_pca = \
+    encoder, decoder, discriminator, mapper, log_dict = \
         log_index_with_inception_model(args, wandb, decoder, discriminator, encoder, i,
                                        inception_model_score, log_dict, args.dataset, args.distribution,
                                        args.latent_dim, args.model_name, args.environment, mapper)
-       
+    
+    log_index(wandb, i, log_dict)
+    '''
     write_pca_data(args.model_name, args.dataset, args.image_size, args.distribution, i, real_pca, fake_pca)
     write_feature(args.model_name, args.dataset, args.image_size, args.distribution, i,
                       inception_model_score.real_feature_np,
                       inception_model_score.fake_feature_np)
+    '''
     return decoder, discriminator, encoder, mapper
     
 
