@@ -49,10 +49,10 @@ def inference_image(args, model_name, mapper, decoder, batch_size, latent_dim, d
     device = args.device 
     
     with torch.no_grad():
-        if model_name == 'non-prior' :
+        if model_name == 'non-prior':
             z = torch.randn(batch_size, latent_dim, device=device)
             result = decoder(mapper(z)).cpu()
-        if model_name == 'mimic':
+        elif model_name == 'mimic':
             z = torch.rand(batch_size, latent_dim).to(device) * 2 - 1
             result = decoder(mapper(z)).cpu()
         else:
@@ -139,7 +139,7 @@ def learningprior_latent_pca_plt(z, E_x, M_z, dim=1) :
     ax1.set_title('latent kde in pca to %d dim ' % dim)
     return fig1
     
-def latent_plot(args, dataset, encoder, mapper, num=2048) :
+def latent_plot(args, dataset, encoder, mapper, num=2048):
     # gather x sample, E(x)
     train_loader, _ = data_helper.get_data(dataset, args.batch_size, args.image_size, args.environment)
     ex_list = []
@@ -150,9 +150,7 @@ def latent_plot(args, dataset, encoder, mapper, num=2048) :
             x_list.append(each_batch[0])
         if args.batch_size * len(ex_list) >= num : break
     ex_tensor = torch.cat(ex_list)
-    x_tensor = torch.cat(x_list)
-    
-    
+
     plt_list = []
     #case aae. plot{E(x), Gaussian}. E(x) imitate Gaussian. 
     if args.model_name in ['aae', 'mask_aae'] : 
@@ -160,8 +158,6 @@ def latent_plot(args, dataset, encoder, mapper, num=2048) :
         pca_plt = aae_latent_pca_plt(z, ex_tensor)
         for i in range(z.size(1)) :
             plt_list.append(aae_latent_plt(z[:,i],ex_tensor[:,i], i))
-       
-    
     #case non-prior. plot{Gaussian, M(z), E(x)} M(z) imitate E(x).
     elif args.model_name in ['non-prior'] : 
         z = torch.randn(*ex_tensor.shape)
@@ -169,8 +165,6 @@ def latent_plot(args, dataset, encoder, mapper, num=2048) :
         pca_plt = nonprior_latent_pca_plt(z, ex_tensor, M_z)
         for i in range(z.size(1)) :
             plt_list.append(nonprior_latent_plt(z[:,i],ex_tensor[:,i], M_z[:,i], i))
-        
-    
     #case learning-prior. plot{Gaussian, M(z), E(x)} E(x) imitate M(z)
     elif args.model_name in ['learning-prior'] : 
         z = torch.randn(*ex_tensor.shape)
@@ -178,9 +172,6 @@ def latent_plot(args, dataset, encoder, mapper, num=2048) :
         pca_plt = learningprior_latent_pca_plt(z, ex_tensor, M_z)
         for i in range(z.size(1)) :
             plt_list.append(learningprior_latent_plt(z[:,i],ex_tensor[:,i], M_z[:,i], i))
-        
-    
-        
     return plt_list, pca_plt
 
     
@@ -223,16 +214,18 @@ def log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder
                "inception_score_fake": inception_score_fake,
                "density": density,
                "coverage": coverage,
-               "latent kde each dim" : [wandb.Image(plt) for plt in plt_list],
-               "latent kde in pca" : wandb.Image(pca_plt),
-               "run time" : run_time
-              },
+               "latent kde each dim": [wandb.Image(plt) for plt in plt_list],
+               "latent kde in pca": wandb.Image(pca_plt),
+               "run time": run_time},
               step=i)
     if decoder.has_mask_layer:
         mask_vector_2d_list = [[each_mask_element] for each_mask_element in decoder.mask_vector.cpu().detach().numpy()]
         mask_table = wandb.Table(data=mask_vector_2d_list, columns=["mask_value"])
         wandb.log({"mask_vector_hist": wandb.plot.histogram(mask_table, "mask_value", title="mask_vector_hist")}, step=i)
     inception_model_score.clear_fake()
+    pca_plt.clf()
+    for each_plt in plt_list:
+        each_plt.clf()
     return encoder, decoder, discriminator, mapper, real_pca, fake_pca
 
 
@@ -440,21 +433,17 @@ def main(args):
 
 
 if __name__ == "__main__":
-    
     '''
     vanilla command : 
-    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=aae --batch_size=128 --epochs=100 --pretrain_epoch=0 --latent_dim=32 --log_interval=100 --wandb=True --gen_image_in_gpu=True --isnet_batch_size=128 --time_check=True
-    
+    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=aae --batch_size=64 --epochs=100 --pretrain_epoch=0 --latent_dim=32 --log_interval=10 --wandb=True --gen_image_in_gpu=True --isnet_batch_size=128
     
     non-prior command : 
-    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=non-prior --batch_size=128 --epochs=300 --pretrain_epoch=10 --latent_dim=32 --log_interval=300 --mapper_inter_nz=32 --mapper_inter_layer=1 --wandb=True --gen_image_in_gpu=True --isnet_batch_size=128 --time_limit=9999
+    python3 --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=non-prior --mapper_inter_nz=512 --mapper_inter_layer=1 --batch_size=64 --epochs=100 --pretrain_epoch=0 --latent_dim=100 --log_interval=10 --gen_image_in_gpu=True --isnet_batch_size=64 --wandb=True
     
     learning-prior command : 
-    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=learning-prior --batch_size=128 --epochs=300 --pretrain_epoch=0 --latent_dim=32 --log_interval=300 --mapper_inter_nz=32 --mapper_inter_layer=1 --gen_image_in_gpu=True --isnet_batch_size=128 --time_limit=3248 --wandb=True
+    python3 main.py --device=cuda:0 --dataset=ffhq --image_size=32 --model_name=learning-prior --batch_size=64 --epochs=100 --pretrain_epoch=0 --latent_dim=32 --log_interval=10 --mapper_inter_nz=32 --mapper_inter_layer=1 --gen_image_in_gpu=True --isnet_batch_size=64 --wandb=True
     
     '''
-    
-    
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--dataset', type=str, choices=['ffhq', 'cifar', 'mnist', 'mnist_fashion', 'emnist'])
@@ -484,11 +473,11 @@ if __name__ == "__main__":
     if args.model_name == 'mask_aae':
         args.has_mask_layer = True
         
-    if args.time_check or args.time_limit : 
+    if args.time_check or args.time_limit:
         assert args.log_interval == args.epochs, \
             "if you use time_check or time_limit option, metric cannot be calculated in the middle and can only be calculated at the end[Recomendation : set log_interval=epochs]"
     
     global device
     device = args.device
-    
+    plt.rcParams.update({'figure.max_open_warning': 0})
     main(args)
