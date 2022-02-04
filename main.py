@@ -31,7 +31,7 @@ def main(args):
         wandb_name = "%s[%d]_%s" % (args.dataset, args.image_size, args.model_name)
         wandb.login()
         wandb.init(project="AAE", config=args, name=wandb_name)
-    inception_model_score = load_inception_model(inception_model_score, train_loader, args.dataset, args.image_size, args.environment)
+
     ae_optimizer, d_optimizer, decoder, discriminator, encoder, g_optimizer, mapper = \
         model.get_aae_model_and_optimizer(args)
     if args.model_name == 'mimic':
@@ -44,8 +44,8 @@ def main(args):
         mapper, m_optimizer, discriminator_forpl, dpl_optimizer = \
             model.get_learning_prior_model_and_optimizer(args)
         decoder_optimizer = torch.optim.Adam(decoder.parameters(), lr=1e-4)
-        
-        
+
+    inception_model_score = load_inception_model(args, inception_model_score, decoder, mapper, train_loader)
     
     args.start_time = time.time()
     

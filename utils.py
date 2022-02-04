@@ -14,8 +14,9 @@ import torchvision
 import matplotlib.pyplot as plt
 
 
-def load_inception_model(inception_model_score, train_loader, dataset, image_size, environment):
-    global device
+def load_inception_model(args, inception_model_score, decoder, mapper, train_loader):
+    device = args.device
+    environment = args.environment
     if environment == 'nuri':
         icm_path = './inception_model_info/'
     else:
@@ -56,14 +57,16 @@ def inference_image(args, model_name, mapper, decoder, batch_size, latent_dim, d
 
 
 
-
-
+#deprecated function
+'''
 def write_pca_data(model_name, dataset, image_size, distribution, epoch, real_pca, fake_pca):
     folder_name = 'pca_data/'
     os.makedirs(folder_name, exist_ok=True)
     pca_df = pd.DataFrame({"real_pca_x": real_pca[:, 0], "real_pca_y": real_pca[:, 1], "real_pca_z": real_pca[:, 2],
                            "fake_pca_x": fake_pca[:, 0], "fake_pca_y": fake_pca[:, 1], "fake_pca_z": fake_pca[:, 2]})
     pca_df.to_csv(f"{folder_name}{model_name}_{dataset}_{image_size}_{distribution}_{epoch}_pca_data.csv")
+'''
+
 
 def aae_latent_plt(z, E_x, fnum) : 
     fig1, ax1 = plt.subplots()
@@ -285,13 +288,17 @@ def generate_image_and_save_in_wandb(args, wandb, mapper, decoder, each_epoch, m
     
     wandb.log({'image': wandb.Image(sample_fig, caption='%s_epochs' % each_epoch)}, step=each_epoch)
 
-
+#deprecated function
+'''
 def log_z_posterior(encoder, i):
     wandb.log({"z_posterior": wandb.Histogram(np.average(encoder.z_posterior.weight.data.cpu().numpy(), axis=1))},
               step=i)
     wandb.log({"z_posterior_avg": np.average(encoder.z_posterior.weight.data.cpu().numpy())}, step=i)
+'''
 
 
+#deprecated function
+'''
 def write_feature(model_name, dataset, image_size, distribution, epoch, real_feature_np, fake_feature_np):
     folder_name = 'feature_data/'
     os.makedirs(folder_name, exist_ok=True)
@@ -301,7 +308,7 @@ def write_feature(model_name, dataset, image_size, distribution, epoch, real_fea
     np.savetxt(f"{folder_name}{model_name}_{dataset}_{image_size}_{distribution}_{epoch}_fake_feature_data.csv",
                fake_feature_np,
                delimiter=",")
-
+'''
 
 def save_models(args, decoder, encoder, mapper):
     os.makedirs('model', exist_ok=True)
