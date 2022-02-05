@@ -142,15 +142,16 @@ class Mapping(nn.Module):
     def __init__(self, in_out_nz, mapper_inter_nz, mapper_inter_layer):
         super(Mapping, self).__init__()
         linear = nn.ModuleList()
+        linear.append(nn.BatchNorm1d(in_out_nz))
         if mapper_inter_layer >= 2:
             linear.append(nn.Linear(in_features=in_out_nz, out_features=mapper_inter_nz))
-            linear.append(nn.ELU())
+            linear.append(nn.BatchNorm1d(mapper_inter_nz))
+            linear.append(nn.CELU())
             for i in range(mapper_inter_layer-2):
                 linear.append(nn.Linear(in_features=mapper_inter_nz, out_features=mapper_inter_nz))
-                linear.append(nn.ELU())
+                linear.append(nn.CELU())
 
             linear.append(nn.Linear(in_features=mapper_inter_nz, out_features=in_out_nz))
-            linear.append(nn.ELU())
         else:
             linear.append(nn.Linear(in_features=in_out_nz, out_features=in_out_nz))
         self.linear = linear
@@ -174,10 +175,10 @@ def update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encode
     r_loss.backward(retain_graph=flag_retain_graph)
     ae_optimizer.step()
     if return_encoded_feature:
-        return r_loss, z_posterior.detach().cpu()
+        return {'r_loss': r_loss.item()}, z_posterior.detach().cpu()
     if return_encoded_feature_gpu:
-        return r_loss, z_posterior.detach()
-    return r_loss
+        return {'r_loss': r_loss.item()}, z_posterior.detach()
+    return {'r_loss': r_loss.item()}
 
 
 def update_discriminator(args, d_optimizer, each_batch, encoder, decoder, discriminator):
@@ -220,17 +221,19 @@ def update_generator(g_optimizer, each_batch, encoder, decoder, discriminator):
 
 
 def update_aae(ae_optimizer, args, d_optimizer, decoder, discriminator, each_batch, encoder, g_optimizer, latent_dim):
-    r_loss = update_autoencoder(ae_optimizer, each_batch, encoder, decoder)
+    log = update_autoencoder(ae_optimizer, each_batch, encoder, decoder)
     d_loss = update_discriminator(args, d_optimizer, each_batch, encoder, decoder, discriminator)
     g_loss = update_generator(g_optimizer, each_batch, encoder, decoder, discriminator)
-    return d_loss, g_loss, r_loss
+    log.update({'d_loss': d_loss, 'g_loss': g_loss})
+    return log
 
 def update_aae_with_mappedz(args, ae_optimizer, d_optimizer, decoder, discriminator, mapper, each_batch, encoder, g_optimizer):
-    r_loss = update_autoencoder(ae_optimizer, each_batch, encoder, decoder)
+    log = update_autoencoder(ae_optimizer, each_batch, encoder, decoder)
     d_loss = update_discriminator_with_mappedz(args, d_optimizer, each_batch, encoder, decoder, \
                                                mapper, discriminator)
     g_loss = update_generator(g_optimizer, each_batch, encoder, decoder, discriminator)
-    return d_loss, g_loss, r_loss
+    log.update({'d_loss': d_loss, 'g_loss': g_loss})
+    return log
 
 def update_mapper_with_discriminator_forpl(args, dpl_optimizer, decoder_optimizer, m_optimizer, discriminator_forpl, decoder, mapper, each_batch) :
     #discriminator_forpl은 x를 True로, decoder(mapper(noise))를 False로 구별한다
@@ -258,7 +261,7 @@ def update_mapper_with_discriminator_forpl(args, dpl_optimizer, decoder_optimize
     m_optimizer.step()
     decoder_optimizer.step()
     
-    return d_loss
+    return {'D loss for prior' : d_loss}
 
 
 def get_nonprior_model_and_optimizer(args):
@@ -320,19 +323,29 @@ def update_posterior_part(args, mapper, discriminator, m_optimizer, d_optimizer,
     mapped_noise = mapper(noise)
     
     #train discriminator. make D(encoded_feature)-->Positive and D(mapped_noise)-->Negative
-    d_loss = -torch.mean(torch.log(discriminator(encoded_feature)) + torch.log(1 - discriminator(mapped_noise)))
+    D_Ex = discriminator(encoded_feature)
+    D_Mz = discriminator(mapped_noise)
+    d_loss = -torch.mean(torch.log(D_Ex) + torch.log(1 - D_Mz))
     d_optimizer.zero_grad()
     d_loss.backward()
     d_optimizer.step()
+
+    log = {'before update D/D_Ex': D_Ex.mean().item(),
+           'before update D/D_Mz': D_Mz.mean().item()}
     
     #train mapper. make D(mapped_noise)-->Positive
     noise = torch.randn(batch_size, args.latent_dim, device=args.device)
-    m_loss = -torch.mean(torch.log(discriminator(mapper(noise))))
+    D_Mz = discriminator(mapper(noise))
+    m_loss = -torch.mean(torch.log(D_Mz))
     m_optimizer.zero_grad()
     m_loss.backward()
     m_optimizer.step()
-    
-    return d_loss.item(), m_loss.item()
+
+    log.update({'after update D/D_Mz': D_Mz.mean().item(),
+                'd_loss': d_loss.item(),
+                'm_loss': m_loss.item()})
+
+    return log
     
 
 
@@ -344,4 +357,4 @@ def train_mapper(args, encoder, mapper, encoded_feature_list):
         uniform_input = each_batch.to(args.device)
         sorted_encoded_feature = label_feature.to(args.device)
         m_loss = update_mimic(m_optimizer, uniform_input, sorted_encoded_feature, mapper)
-    return m_loss
+    return {'m_loss' : m_loss}

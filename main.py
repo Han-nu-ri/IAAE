@@ -176,7 +176,7 @@ def latent_plot(args, dataset, encoder, mapper, num=2048):
 
     
 
-def log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder, g_loss, i, inception_model_score, r_loss,
+def log_index_with_inception_model(args, decoder, discriminator, encoder, i, inception_model_score, log_dict,
                                    dataset, distribution, latent_dim, model_name, environment, mapper=None):
     
     global start_time
@@ -203,21 +203,19 @@ def log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder
         metrics['precision'], metrics['recall'], metrics['fid'], metrics['real_is'], metrics['fake_is'], \
         metrics['density'], metrics['coverage']
 
-    wandb.log({'IsNet feature': wandb.Image(feature_pca_plot),
-               "r_loss": r_loss,
-               "d_loss": d_loss,
-               "g_loss": g_loss,
-               "precision": precision,
-               "recall": recall,
-               "fid": fid,
-               "inception_score_real": inception_score_real,
-               "inception_score_fake": inception_score_fake,
-               "density": density,
-               "coverage": coverage,
-               "latent kde each dim": [wandb.Image(plt) for plt in plt_list],
-               "latent kde in pca": wandb.Image(pca_plt),
-               "run time": run_time},
-              step=i)
+    log_dict.update({'IsNet feature': wandb.Image(feature_pca_plot),
+                     "precision": precision,
+                     "recall": recall,
+                     "fid": fid,
+                     "inception_score_real": inception_score_real,
+                     "inception_score_fake": inception_score_fake,
+                     "density": density,
+                     "coverage": coverage,
+                     "latent kde each dim": [wandb.Image(plt) for plt in plt_list],
+                     "latent kde in pca": wandb.Image(pca_plt),
+                     "run time": run_time
+                     })
+    wandb.log(log_dict, step=i)
     if decoder.has_mask_layer:
         mask_vector_2d_list = [[each_mask_element] for each_mask_element in decoder.mask_vector.cpu().detach().numpy()]
         mask_table = wandb.Table(data=mask_vector_2d_list, columns=["mask_value"])
@@ -326,13 +324,13 @@ def pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader):
     return decoder, encoder
 
 
-def log_and_write_pca(args, d_loss, decoder, discriminator, encoder, g_loss, i, inception_model_score, mapper, r_loss):
+def log_and_write_pca(args, decoder, discriminator, encoder, i, inception_model_score, mapper, log_dict):
     if i % args.log_interval == 0 or i == (args.epochs - 1):
         generate_image_and_save_in_wandb(args, mapper, decoder, i, args.model_name, args.latent_dim, args.distribution,
                                          args.dataset)
         encoder, decoder, discriminator, mapper, real_pca, fake_pca = \
-            log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder, g_loss, i,
-                                           inception_model_score, r_loss, args.dataset, args.distribution,
+            log_index_with_inception_model(args, decoder, discriminator, encoder, i,
+                                           inception_model_score, log_dict, args.dataset, args.distribution,
                                            args.latent_dim, args.model_name, args.environment, mapper)
         if i == (args.epochs - 1):
             write_pca_data(args.model_name, args.dataset, args.image_size, args.distribution, i, real_pca, fake_pca)
@@ -342,14 +340,14 @@ def log_and_write_pca(args, d_loss, decoder, discriminator, encoder, g_loss, i, 
     return decoder, discriminator, encoder, mapper
 
 
-def force_log_and_write_pca(args, d_loss, decoder, discriminator, encoder, g_loss, i, inception_model_score, mapper, r_loss):
+def force_log_and_write_pca(args, decoder, discriminator, encoder, i, inception_model_score, mapper, log_dict):
     #same as log_and_write_pca but no condition
     generate_image_and_save_in_wandb(args, mapper, decoder, i, args.model_name, args.latent_dim, args.distribution,
                                          args.dataset)
     encoder, decoder, discriminator, mapper, real_pca, fake_pca = \
-            log_index_with_inception_model(args, d_loss, decoder, discriminator, encoder, g_loss, i,
-                                           inception_model_score, r_loss, args.dataset, args.distribution,
-                                           args.latent_dim, args.model_name, args.environment, mapper)
+        log_index_with_inception_model(args, decoder, discriminator, encoder, i,
+                                       inception_model_score, log_dict, args.dataset, args.distribution,
+                                       args.latent_dim, args.model_name, args.environment, mapper)
        
     write_pca_data(args.model_name, args.dataset, args.image_size, args.distribution, i, real_pca, fake_pca)
     write_feature(args.model_name, args.dataset, args.image_size, args.distribution, i,
@@ -393,38 +391,47 @@ def main(args):
     start_time = time.time()
     if args.pretrain_epoch > 0:
         pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader)
-        
+
+    log_dict, log, log2 = {}, {}, {}
     for i in range(0, args.epochs):
-        if args.time_limit and timeout(args.time_limit, start_time) : break
-        d_loss, g_loss, r_loss = 0, 0, 0
+        log_dict, log, log2 = {}, {}, {}
+        if args.time_limit and timeout(args.time_limit, start_time): break
         encoded_feature_list = []
         for each_batch in tqdm.tqdm(train_loader, desc="train[%d/%d]" % (i, args.epochs)):
             each_batch = each_batch[0].to(args.device)
             if args.model_name in ['aae', 'mask_aae']:
-                d_loss, g_loss, r_loss = model.update_aae(ae_optimizer, args, d_optimizer, decoder, discriminator,
-                                                          each_batch, encoder, g_optimizer, args.latent_dim)
+                log = model.update_aae(ae_optimizer, args, d_optimizer, decoder, discriminator,
+                                       each_batch, encoder, g_optimizer, args.latent_dim)
             elif args.model_name == 'mimic':
-                r_loss, encoded_feature = \
+                log, encoded_feature = \
                     model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature=True)
                 encoded_feature_list.append(encoded_feature)                
             elif args.model_name == 'non-prior':
-                r_loss, encoded_feature = model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature_gpu=True, flag_retain_graph=False)
-                d_loss, m_loss = model.update_posterior_part(args, mapper, discriminator, m_optimizer, d_optimizer, encoded_feature)            
+                log, encoded_feature = model.update_autoencoder(ae_optimizer, each_batch, encoder, decoder,
+                                                                return_encoded_feature_gpu=True,
+                                                                flag_retain_graph=False)
+                log2 = model.update_posterior_part(args, mapper, discriminator, m_optimizer, d_optimizer,
+                                                   encoded_feature)
             elif args.model_name == 'learning-prior':
-                d_loss, g_loss, r_loss = model.update_aae_with_mappedz(args, ae_optimizer, d_optimizer, decoder, discriminator, mapper, each_batch, encoder, g_optimizer)
-                d_loss += model.update_mapper_with_discriminator_forpl(args, dpl_optimizer, decoder_optimizer, m_optimizer, discriminator_forpl, decoder, mapper, each_batch)
+                log = model.update_aae_with_mappedz(args, ae_optimizer, d_optimizer, decoder, discriminator, mapper,
+                                                    each_batch, encoder, g_optimizer)
+                log2 = model.update_mapper_with_discriminator_forpl(args, dpl_optimizer, decoder_optimizer, m_optimizer,
+                                                                    discriminator_forpl, decoder, mapper, each_batch)
             if args.model_name == 'mimic':
                 g_loss = model.train_mapper(args, encoder, mapper, args.device, args.lr, args.batch_size, encoded_feature_list)
-        
+
+        log_dict.update(log)
+        log_dict.update(log2)
+
         # wandb log를 남기고, time_check와 time_limit 옵션이 둘다 없을때만, log interval마다 기록을 남김
         if args.wandb and not args.time_check and not args.time_limit:
-            decoder, discriminator, encoder, mapper = log_and_write_pca(args, d_loss, decoder, discriminator, encoder,
-                                                                    g_loss, i, inception_model_score, mapper, r_loss)
+            decoder, discriminator, encoder, mapper = log_and_write_pca(args, decoder, discriminator, encoder,
+                                                                        i, inception_model_score, mapper, log_dict)
             
     # wandb log를 남기고, time_check 또는 time_limit 옵션 둘 중 하나라도 있으면, 최후에 기록을 남김
     if args.wandb and (args.time_check or args.time_limit):
-            decoder, discriminator, encoder, mapper = force_log_and_write_pca(args, d_loss, decoder, discriminator, encoder,
-                                                                    g_loss, i, inception_model_score, mapper, r_loss)
+        decoder, discriminator, encoder, mapper = log_and_write_pca(args, decoder, discriminator, encoder,
+                                                                    i, inception_model_score, mapper, log_dict)
         
     save_models(args, decoder, encoder, mapper)
     
