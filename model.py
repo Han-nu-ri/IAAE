@@ -160,6 +160,57 @@ class Mapping(nn.Module):
         for layer in self.linear:
             input = layer(input)
         return input
+
+# code from https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/003efc4c8819de47ff11b5a0af7ba09aee7f5fc1/models/networks.py#L538
+import torch.nn as nn
+import functools
+
+class NLayerDiscriminator(nn.Module):
+    """Defines a PatchGAN discriminator"""
+
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d):
+        """Construct a PatchGAN discriminator
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            ndf (int)       -- the number of filters in the last conv layer
+            n_layers (int)  -- the number of conv layers in the discriminator
+            norm_layer      -- normalization layer
+        """
+        super(NLayerDiscriminator, self).__init__()
+        if type(norm_layer) == functools.partial:  # no need to use bias as BatchNorm2d has affine parameters
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+
+        kw = 4
+        padw = 1
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
+        nf_mult = 1
+        nf_mult_prev = 1
+        for n in range(1, n_layers):  # gradually increase the number of filters
+            nf_mult_prev = nf_mult
+            nf_mult = min(2 ** n, 8)
+            sequence += [
+                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias),
+                norm_layer(ndf * nf_mult),
+                nn.LeakyReLU(0.2, True)
+            ]
+
+        nf_mult_prev = nf_mult
+        nf_mult = min(2 ** n_layers, 8)
+        sequence += [
+            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
+            norm_layer(ndf * nf_mult),
+            nn.LeakyReLU(0.2, True)
+        ]
+
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)] 
+        # output 1 channel prediction map
+        self.model = nn.Sequential(*sequence)
+
+    def forward(self, input):
+        """Standard forward."""
+        return self.model(input)      
     
 
 def update_autoencoder(ae_optimizer, each_batch, encoder, decoder, return_encoded_feature=False, return_encoded_feature_gpu=False, flag_retain_graph=True):
@@ -235,6 +286,128 @@ def update_aae_with_mappedz(args, ae_optimizer, d_optimizer, decoder, discrimina
     log.update({'d_loss': d_loss, 'g_loss': g_loss})
     return log
 
+def update_ae_and_w_for_aaae(args, each_batch, encoder, decoder, ae_optimizer,
+                            discriminator_forpl, dpl_optimizer):
+    
+    '''update encoder/decoder'''
+    
+    # Discriminator_w(x) --> minimize(negative)   ??why??
+    # distance(decoder(encoder(x)), x) --> minimize
+    
+    real_image = each_batch.to(args.device)
+    Dwx = discriminator_forpl(real_image)
+    
+    reconstruct_image = decoder(encoder(real_image))
+    pixel_wise_loss = torch.nn.L1Loss(reduction='mean')
+    distance = pixel_wise_loss(reconstruct_image, real_image)
+    
+    Dwx_loss = Dwx.mean()
+    
+    encoder_decoder_loss = Dwx_loss + distance  * args.lambda1
+    
+    ae_optimizer.zero_grad()
+    encoder_decoder_loss.backward()
+    ae_optimizer.step()
+    
+    
+    
+    '''update discriminator by patch discriminator'''
+    Dwx = discriminator_forpl(real_image)
+    Dwgx = discriminator_forpl(decoder(encoder(real_image)))
+    
+    sigmoid = torch.nn.Sigmoid()
+    
+    w_loss = -(torch.log(sigmoid(Dwx))+ torch.log(1-sigmoid(Dwgx))).mean()
+    
+    dpl_optimizer.zero_grad()
+    w_loss.backward()
+    dpl_optimizer.step()
+    
+    log = {}
+    log.update({'update_encoder_decoder/Dwx_loss': Dwx_loss.item(),
+                'update_encoder_decoder/d': distance.item(),
+                'update_encoder_encoder/encoder_decoder_loss': encoder_decoder_loss.item(),
+                
+                'update_Dw/Dwx':Dwx.mean().item(),
+                'update_Dw/Dwgx':Dwgx.mean().item(),
+                'update_Dw/w_loss':w_loss.item() })
+    return log
+
+def update_mapper_and_gamma(args, each_batch, encoder, discriminator, mapper, d_optimizer, m_optimizer) :
+    
+    batch_size = each_batch.size(0)
+    real_image = each_batch.to(args.device)
+    
+    #define Wasserstein distance for generalize
+    #code from https://uos-deep-learning.tistory.com/16
+    #note that real_data is c, not image!
+    def calc_gradient_penalty(args, netD, real_data, c_g):
+        # GP strength
+        LAMBDA = args.lambda2
+
+        b_size = real_data.size()[0]
+
+        # Calculate interpolation
+        #alpha = torch.rand(b_size, 1, 1, 1)  <-- is original code. but we do interpolation latent code, not image
+        alpha = torch.rand(b_size, 1)
+        alpha = alpha.expand_as(real_data)
+        alpha = alpha.to(args.device)
+
+        interpolated = alpha * real_data.data + (1 - alpha) * c_g
+        interpolated = interpolated.clone().detach().requires_grad_(True)
+        interpolated = interpolated.to(args.device)
+
+        # Calculate probability of interpolated examples
+        prob_interpolated = netD(interpolated).mean()
+
+        # Calculate gradients of probabilities with respect to examples
+        gradients = torch.autograd.grad(outputs=prob_interpolated, inputs=interpolated,
+                               grad_outputs=torch.ones(prob_interpolated.size()).cuda(),
+                               create_graph=True, retain_graph=True)[0]
+
+        # Gradients have shape (batch_size, num_channels, img_width, img_height),
+        # so flatten to easily take norm per example in batch
+        gradients = gradients.view(b_size, -1)
+
+        # Derivatives of the gradient close to 0 can cause problems because of
+        # the square root, so manually calculate norm and add epsilon
+        gradients_norm = torch.sqrt(torch.sum(gradients ** 2, dim=1) + 1e-12)
+
+        # Return gradient penalty
+        return LAMBDA * ((gradients_norm - 1) ** 2).mean()
+    
+    for repeat in range(args.aaae_k) : 
+        # first, update D gamma
+        d_optimizer.zero_grad()
+        noise = torch.randn(batch_size, args.latent_dim, device=args.device)
+        c_g = mapper(noise)
+        c = encoder(real_image)
+        
+        Drc = discriminator(c)
+        Drcg = discriminator(c_g)
+    
+        reg_value = calc_gradient_penalty(args, discriminator, c, c_g)
+        
+        Dgamma_loss = (-Drc + Drcg + reg_value).mean()
+        Dgamma_loss.backward()
+        d_optimizer.step()
+        
+        c_g = mapper(noise)
+        Drcg_new = discriminator(c_g)
+        mapper_loss = -Drcg_new.mean()
+        m_optimizer.zero_grad()
+        mapper_loss.backward()
+        m_optimizer.step()
+        
+   
+    return {'update_mapper_gamma/Drc' : Drc.mean().item(),
+            'update_mapper_gamma/Drcg' : Drcg.mean().item(),
+            'update_mapper_gamma/reg_value' : reg_value.item(),
+            'update_mapper_gamma/Dgamma_loss' : Dgamma_loss.item(),
+            'update_mapper_gamma/Drcg_after_update_gamma' : Drcg_new.mean().item(),
+            'update_mapper_gamma/mapper_loss' : mapper_loss.item()}
+
+
 def update_mapper_with_discriminator_forpl(args, dpl_optimizer, decoder_optimizer, m_optimizer, discriminator_forpl, decoder, mapper, each_batch) :
     #discriminator_forpl은 x를 True로, decoder(mapper(noise))를 False로 구별한다
     #mapper와 decoder는 discriminator를 속이려고 한다
@@ -276,6 +449,12 @@ def get_learning_prior_model_and_optimizer(args):
     dpl_optimizer = torch.optim.Adam(discriminator_forpl.parameters(), lr=1e-4)
     return mapper, m_optimizer, discriminator_forpl, dpl_optimizer
 
+def get_aaae_model_and_optimizer(args):
+    mapper = Mapping(args.latent_dim, args.mapper_inter_nz, args.mapper_inter_layer).to(args.device)
+    m_optimizer = torch.optim.Adam(mapper.parameters(), lr=1e-4)
+    discriminator_forpl = NLayerDiscriminator(input_nc=3, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d).to(args.device)
+    dpl_optimizer = torch.optim.Adam(discriminator_forpl.parameters(), lr=1e-4)
+    return mapper, m_optimizer, discriminator_forpl, dpl_optimizer
 
 def get_aae_model_and_optimizer(args):
     encoder = Encoder(args.latent_dim, args.image_size).to(args.device)

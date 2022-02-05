@@ -49,7 +49,7 @@ def inference_image(args, model_name, mapper, decoder, batch_size, latent_dim, d
     device = args.device 
     
     with torch.no_grad():
-        if model_name == 'non-prior':
+        if model_name in ['non-prior', 'learning-prior', 'aaae']:
             z = torch.randn(batch_size, latent_dim, device=device)
             result = decoder(mapper(z)).cpu()
         elif model_name == 'mimic':
@@ -159,7 +159,7 @@ def latent_plot(args, dataset, encoder, mapper, num=2048):
         for i in range(z.size(1)) :
             plt_list.append(aae_latent_plt(z[:,i],ex_tensor[:,i], i))
     #case non-prior. plot{Gaussian, M(z), E(x)} M(z) imitate E(x).
-    elif args.model_name in ['non-prior'] : 
+    elif args.model_name in ['non-prior', 'aaae'] : 
         z = torch.randn(*ex_tensor.shape)
         M_z = mapper(z.to(args.device)).detach().cpu()
         pca_plt = nonprior_latent_pca_plt(z, ex_tensor, M_z)
@@ -381,10 +381,17 @@ def main(args):
         decoder, encoder = pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader)
     if args.model_name == 'non-prior':
         mapper, m_optimizer = model.get_nonprior_model_and_optimizer(args)
-    if args.model_name == 'learning-prior':
+    if args.model_name in ['learning-prior'] :
+        #dpl is Discrimininator for image
         mapper, m_optimizer, discriminator_forpl, dpl_optimizer = \
             model.get_learning_prior_model_and_optimizer(args)
         decoder_optimizer = torch.optim.Adam(decoder.parameters(), lr=1e-4)
+    if args.model_name in ['aaae'] : 
+        #dpl is Discrimininator for image
+        mapper, m_optimizer, discriminator_forpl, dpl_optimizer = \
+            model.get_aaae_model_and_optimizer(args)
+        decoder_optimizer = torch.optim.Adam(decoder.parameters(), lr=1e-4)
+        
         
         
     global start_time
@@ -417,6 +424,12 @@ def main(args):
                                                     each_batch, encoder, g_optimizer)
                 log2 = model.update_mapper_with_discriminator_forpl(args, dpl_optimizer, decoder_optimizer, m_optimizer,
                                                                     discriminator_forpl, decoder, mapper, each_batch)
+            elif args.model_name == 'aaae' : 
+                log = model.update_ae_and_w_for_aaae(args, each_batch, encoder, decoder, ae_optimizer,
+                                                     discriminator_forpl, dpl_optimizer)
+                log2 = model.update_mapper_and_gamma(args, each_batch, encoder, discriminator, mapper,
+                                                     d_optimizer, m_optimizer)
+                
             if args.model_name == 'mimic':
                 g_loss = model.train_mapper(args, encoder, mapper, args.device, args.lr, args.batch_size, encoded_feature_list)
 
@@ -458,7 +471,11 @@ if __name__ == "__main__":
                         choices=['standard_normal', 'uniform', 'gamma', 'beta', 'chi', 'dirichlet', 'laplace'],
                         default='standard_normal')
     parser.add_argument('--image_size', type=int, choices=[32, 64, 128], default=128)
-    parser.add_argument('--model_name', type=str, choices=['aae', 'mimic', 'mask_aae', 'non-prior', 'learning-prior'])
+    parser.add_argument('--model_name', type=str, choices=
+                        ['aae', 'mimic', 'mask_aae', 'non-prior', 'learning-prior', 'aaae'])
+    parser.add_argument('--lambda1', type=float, default=0.001)
+    parser.add_argument('--lambda2', type=float, default=10)
+    parser.add_argument('--aaae_k', type=int, default=2)
     parser.add_argument('--has_mask_layer', type=str2bool, default=False)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--batch_size', type=int, default=128)
