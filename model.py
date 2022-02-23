@@ -43,7 +43,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, nz=32, img_size=32, ngpu=1, ngf=64, nc=3, has_mask_layer=False):
+    def __init__(self, nz=32, img_size=32, device='cuda:0', ngpu=1, ngf=64, nc=3, has_mask_layer=False):
         super(Decoder, self).__init__()
         self.ngpu = ngpu
         self.nz = nz
@@ -75,7 +75,8 @@ class Decoder(nn.Module):
         self.has_mask_layer = has_mask_layer
         if has_mask_layer:
             self.theta_vector = torch.rand(nz, requires_grad=True)
-            self.mask_vector = torch.max(torch.zeros_like(self.theta_vector), 1 - torch.exp(-self.theta_vector))
+            self.mask_vector = torch.max(torch.zeros_like(self.theta_vector),
+                                         1 - torch.exp(-self.theta_vector)).to(device)
 
     def forward(self, input):
         input = input.view(-1, self.nz, 1, 1)
@@ -458,7 +459,7 @@ def get_aaae_model_and_optimizer(args):
 
 def get_aae_model_and_optimizer(args):
     encoder = Encoder(args.latent_dim, args.image_size).to(args.device)
-    decoder = Decoder(args.latent_dim, args.image_size, has_mask_layer=args.has_mask_layer).to(args.device)
+    decoder = Decoder(args.latent_dim, args.image_size, args.device, has_mask_layer=args.has_mask_layer).to(args.device)
     mapper = None
     discriminator = Discriminator(args.latent_dim).to(args.device)
     ae_optimizer = torch.optim.Adam(itertools.chain(encoder.parameters(), decoder.parameters()), lr=1e-4)
