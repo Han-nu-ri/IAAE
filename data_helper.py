@@ -13,6 +13,7 @@ def get_celebA_dataset(batch_size, image_size, environment):
         transforms.ToTensor(),
     ])
     train_dataset = torchvision.datasets.ImageFolder(image_path + 'celeba', transformation)
+    '''
     num_train = len(train_dataset)
     indices = list(range(num_train))
     #train_indices, test_indices = indices[:10000], indices[200000:]
@@ -21,7 +22,9 @@ def get_celebA_dataset(batch_size, image_size, environment):
     test_sampler = torch.utils.data.SubsetRandomSampler(test_indices)
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler)
     test_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, sampler=test_sampler)
-    return train_loader, test_loader
+    '''
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=24, pin_memory=True)
+    return train_loader, None
 
 
 def get_ffhq_thumbnails(batch_size, image_size, environment):
@@ -153,5 +156,8 @@ def get_data(dataset, batch_size, image_size, environment):
         return get_mnist(batch_size, image_size, environment)
     elif dataset == 'mnist_fashion':
         return get_fashion_mnist(batch_size, image_size, environment)
-    else:
+    elif dataset == 'celeba' :
         return get_celebA_dataset(batch_size, image_size, environment)
+    else:
+        raise Exception("dataset name is not correct")
+        return None

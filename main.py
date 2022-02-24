@@ -424,12 +424,12 @@ def main(args):
                                                     each_batch, encoder, g_optimizer)
                 log2 = model.update_mapper_with_discriminator_forpl(args, dpl_optimizer, decoder_optimizer, m_optimizer,
                                                                     discriminator_forpl, decoder, mapper, each_batch)
-            elif args.model_name == 'aaae' : 
+            elif args.model_name == 'aaae' :                 
                 log = model.update_ae_and_w_for_aaae(args, each_batch, encoder, decoder, ae_optimizer,
-                                                     discriminator_forpl, dpl_optimizer)
+                                                     discriminator_forpl, dpl_optimizer) 
                 log2 = model.update_mapper_and_gamma(args, each_batch, encoder, discriminator, mapper,
                                                      d_optimizer, m_optimizer)
-                
+
             if args.model_name == 'mimic':
                 g_loss = model.train_mapper(args, encoder, mapper, args.device, args.lr, args.batch_size, encoded_feature_list)
 
@@ -466,7 +466,7 @@ if __name__ == "__main__":
     '''
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', type=str, default='cuda:0')
-    parser.add_argument('--dataset', type=str, choices=['ffhq', 'cifar', 'mnist', 'mnist_fashion', 'emnist'])
+    parser.add_argument('--dataset', type=str, choices=['ffhq', 'cifar', 'mnist', 'mnist_fashion', 'emnist', 'celeba'])
     parser.add_argument('--distribution', type=str,
                         choices=['standard_normal', 'uniform', 'gamma', 'beta', 'chi', 'dirichlet', 'laplace'],
                         default='standard_normal')
