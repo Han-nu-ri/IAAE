@@ -369,7 +369,7 @@ def str2bool(input_string):
 def main(args):
     train_loader, _ = data_helper.get_data(args.dataset, args.batch_size, args.image_size, args.environment)
     if args.wandb:
-        wandb_name = "%s[%d]_%s" % (args.dataset, args.image_size, args.model_name)
+        wandb_name = "%s[%d_%d]_%s" % (args.dataset, args.image_size, args.latent_dim, args.model_name)
         wandb.login()
         wandb.init(project="AAE", config=args, name=wandb_name,  entity="aae_with_nonprior")
     inception_model_score = load_inception_model(train_loader, args.dataset, args.image_size, args.environment)
