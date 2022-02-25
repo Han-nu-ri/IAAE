@@ -437,7 +437,7 @@ def main(args):
         log_dict.update(log2)
 
         # wandb log를 남기고, time_check와 time_limit 옵션이 둘다 없을때만, log interval마다 기록을 남김
-        if args.wandb and not args.time_check and not args.time_limit:
+        if args.wandb and not args.time_check and not args.time_limit : 
             decoder, discriminator, encoder, mapper = log_and_write_pca(args, decoder, discriminator, encoder,
                                                                         i, inception_model_score, mapper, log_dict)
             

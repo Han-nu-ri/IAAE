@@ -257,6 +257,10 @@ class GenerativeModelScore:
         with open(file_name, 'rb') as f:
             (self.real_inception_score, self.real_feature_np, (self.real_mu, self.real_sigma)) = \
                 pickle.load(f)
+            
+    def save_fake_images_info(self, file_name='fake_images_info.pickle'):
+        with open(file_name, 'wb') as f:
+            pickle.dump((self.fake_inception_score, self.fake_feature_np, (self.fake_mu, self.fake_sigma)), f)
 
     def calculate_real_image_statistics(self):
         self.real_inception_score = self.predict_to_inception_score(self.real_predict_softmax)[0]
@@ -354,3 +358,4 @@ class GenerativeModelScore:
         if real is True and epoch == 0:
             self.hidden_representations_of_true.append(hidden_representation)
         return hidden_representation
+
