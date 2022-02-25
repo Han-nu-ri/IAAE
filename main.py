@@ -22,6 +22,11 @@ import time
 matplotlib.use('Agg')
 start_time = None
 
+def current_git_version_hash():
+    import subprocess
+    subprocess = subprocess.Popen("git log -1 | head -n 1", shell=True, stdout=subprocess.PIPE)
+    subprocess_return = subprocess.stdout.read().decode('utf-8')[7:-1]
+    return subprocess_return
 
 def load_inception_model(train_loader, dataset, image_size, environment):
     global device
@@ -492,7 +497,10 @@ if __name__ == "__main__":
     parser.add_argument('--time_check', type=str2bool, default=False)
     parser.add_argument('--time_limit', type=int, default=0)
     parser.add_argument('--environment', type=str, default='yhs')
+    parser.add_argument('--git_version', type=str, default='')
     args = parser.parse_args()
+    
+    args.git_version = current_git_version_hash()
 
     if args.model_name == 'mask_aae':
         args.has_mask_layer = True
