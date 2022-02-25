@@ -371,7 +371,7 @@ def main(args):
     if args.wandb:
         wandb_name = "%s[%d]_%s" % (args.dataset, args.image_size, args.model_name)
         wandb.login()
-        wandb.init(project="AAE", config=args, name=wandb_name)
+        wandb.init(project="AAE", config=args, name=wandb_name,  entity="aae_with_nonprior")
     inception_model_score = load_inception_model(train_loader, args.dataset, args.image_size, args.environment)
     ae_optimizer, d_optimizer, decoder, discriminator, encoder, g_optimizer, mapper = \
         model.get_aae_model_and_optimizer(args)
