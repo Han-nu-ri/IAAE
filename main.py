@@ -28,8 +28,14 @@ def current_git_version_hash():
     subprocess_return = subprocess.stdout.read().decode('utf-8')[7:-1]
     return subprocess_return
 
-def load_inception_model(train_loader, dataset, image_size, environment):
+def load_inception_model(args, train_loader):
     global device
+    
+    environment = args.environment
+    device=args.device
+    image_size= args.image_size
+    dataset = args.dataset
+    
     if environment == 'nuri':
         icm_path = './inception_model_info/'
     else:
@@ -42,7 +48,7 @@ def load_inception_model(train_loader, dataset, image_size, environment):
         inception_model_score.load_real_images_info(icm_path + real_images_info_file_name)
     else:
         inception_model_score.model_to(device)
-        inception_model_score.lazy_forward(dataset, image_size, real_forward=True, device=device, environment=environment)
+        inception_model_score.lazy_forward(dataset, image_size, real_forward=True, device=device, environment=environment, gen_image_in_gpu=args.gen_image_in_gpu)
         inception_model_score.calculate_real_image_statistics()
         inception_model_score.save_real_images_info(icm_path + real_images_info_file_name)
         inception_model_score.model_to('cpu')
@@ -377,7 +383,7 @@ def main(args):
         wandb_name = "%s[%d_%d]_%s" % (args.dataset, args.image_size, args.latent_dim, args.model_name)
         wandb.login()
         wandb.init(project="AAE", config=args, name=wandb_name,  entity="aae_with_nonprior")
-    inception_model_score = load_inception_model(train_loader, args.dataset, args.image_size, args.environment)
+    inception_model_score = load_inception_model(args, train_loader)
     ae_optimizer, d_optimizer, decoder, discriminator, encoder, g_optimizer, mapper = \
         model.get_aae_model_and_optimizer(args)
     if args.model_name == 'mimic':
