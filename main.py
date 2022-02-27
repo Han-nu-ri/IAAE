@@ -405,7 +405,8 @@ def wandb_convergent_log(log) :
                'c_precision' : best_metric[3],
                'c_recall' : best_metric[4],
                'c_density': best_metric[5],
-               'c_coverage': best_metric[6]},
+               'c_coverage': best_metric[6],
+               'c_epoch' : best_metric[0]},
               step=9999)
     
     
