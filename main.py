@@ -511,7 +511,7 @@ def main(args):
             
             
     # wandb log를 남기고, time_check 또는 time_limit 옵션 둘 중 하나라도 있으면, 최후에 기록을 남김
-    if args.wandb and (args.time_check or args.stop_patient):
+    if args.wandb and (args.time_check or args.time_limit):
         decoder, discriminator, encoder, mapper, _ = log_and_write_pca(args, decoder, discriminator, encoder,
                                                                     i, inception_model_score, mapper, log_dict)
         
