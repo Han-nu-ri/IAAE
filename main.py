@@ -235,7 +235,7 @@ def log_index_with_inception_model(args, decoder, discriminator, encoder, i, inc
     pca_plt.clf()
     for each_plt in plt_list:
         each_plt.clf()
-    return encoder, decoder, discriminator, mapper, real_pca, fake_pca
+    return encoder, decoder, discriminator, mapper, real_pca, fake_pca, log_dict
 
 
 def swap_gpu_between_generative_model_and_inception_model(decoder, discriminator, encoder, inception_model_score,
@@ -336,10 +336,11 @@ def pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader):
 
 
 def log_and_write_pca(args, decoder, discriminator, encoder, i, inception_model_score, mapper, log_dict):
+    log_result = {}
     if i % args.log_interval == 0 or i == (args.epochs - 1):
         generate_image_and_save_in_wandb(args, mapper, decoder, i, args.model_name, args.latent_dim, args.distribution,
                                          args.dataset)
-        encoder, decoder, discriminator, mapper, real_pca, fake_pca = \
+        encoder, decoder, discriminator, mapper, real_pca, fake_pca, log_result = \
             log_index_with_inception_model(args, decoder, discriminator, encoder, i,
                                            inception_model_score, log_dict, args.dataset, args.distribution,
                                            args.latent_dim, args.model_name, args.environment, mapper)
@@ -348,14 +349,14 @@ def log_and_write_pca(args, decoder, discriminator, encoder, i, inception_model_
             write_feature(args.model_name, args.dataset, args.image_size, args.distribution, i,
                           inception_model_score.real_feature_np,
                           inception_model_score.fake_feature_np)
-    return decoder, discriminator, encoder, mapper
+    return decoder, discriminator, encoder, mapper, log_result
 
 
 def force_log_and_write_pca(args, decoder, discriminator, encoder, i, inception_model_score, mapper, log_dict):
     #same as log_and_write_pca but no condition
     generate_image_and_save_in_wandb(args, mapper, decoder, i, args.model_name, args.latent_dim, args.distribution,
                                          args.dataset)
-    encoder, decoder, discriminator, mapper, real_pca, fake_pca = \
+    encoder, decoder, discriminator, mapper, real_pca, fake_pca, log_result = \
         log_index_with_inception_model(args, decoder, discriminator, encoder, i,
                                        inception_model_score, log_dict, args.dataset, args.distribution,
                                        args.latent_dim, args.model_name, args.environment, mapper)
@@ -364,7 +365,27 @@ def force_log_and_write_pca(args, decoder, discriminator, encoder, i, inception_
     write_feature(args.model_name, args.dataset, args.image_size, args.distribution, i,
                       inception_model_score.real_feature_np,
                       inception_model_score.fake_feature_np)
-    return decoder, discriminator, encoder, mapper
+    return decoder, discriminator, encoder, mapper, log_result
+    
+def check_fid_go_better(log_db, time=3) :
+    if len(log_db) <= time : 
+        print("check_fid_go_better : not enough log")
+        return True
+
+    log_db_tensor = torch.tensor(log_db)
+    best_fid = log_db_tensor[:,1].sort()[0][0]
+    best_epoch_indices = log_db_tensor[:,1].sort()[1][0]
+    best_epoch = log_db_tensor[best_epoch_indices][0]
+    
+    # 가장 fid가 낮은 케이스가 최근 time번 안에 포함되지 않았을때 False 반환
+    # time=3이라면, 3번 연속 "최저 fid"를 갱신하지 못하면 False
+    if best_epoch_indices < (log_db_tensor.size(0) - 3 ):
+        print("check_fid_go_better : stop")
+        return False
+    
+    print("check_fid_go_better : epoch=%d fid=%d is stil best case" % (best_epoch, best_fid))
+    return True
+    
     
 
 
@@ -409,6 +430,9 @@ def main(args):
     start_time = time.time()
     if args.pretrain_epoch > 0:
         pretrain_autoencoder(ae_optimizer, args, decoder, encoder, train_loader)
+    
+    
+    log_db = []
 
     log_dict, log, log2 = {}, {}, {}
     for i in range(0, args.epochs):
@@ -446,15 +470,25 @@ def main(args):
 
         log_dict.update(log)
         log_dict.update(log2)
+        
+        # 현재 epoch이 logging_start보다 작다면, 로그 패스하고 다음 에폭으로 진행
+        if i < args.logging_start : continue
 
         # wandb log를 남기고, time_check와 time_limit 옵션이 둘다 없을때만, log interval마다 기록을 남김
         if args.wandb and not args.time_check and not args.time_limit : 
-            decoder, discriminator, encoder, mapper = log_and_write_pca(args, decoder, discriminator, encoder,
-                                                                        i, inception_model_score, mapper, log_dict)
+            decoder, discriminator, encoder, mapper, log_result = log_and_write_pca(args, decoder, discriminator, encoder,
+                                                                            i, inception_model_score, mapper, log_dict)
+        
+            # stop_by_fid를 쓰고, fid 최저 점수를 time번에 걸쳐 갱신하지 못했으면 종료
+            if log_result != {} :
+                log_db.append((i,log_result['fid']))
+                if args.stop_by_fid and not check_fid_go_better(log_db, time=3) : 
+                    break
+            
             
     # wandb log를 남기고, time_check 또는 time_limit 옵션 둘 중 하나라도 있으면, 최후에 기록을 남김
-    if args.wandb and (args.time_check or args.time_limit):
-        decoder, discriminator, encoder, mapper = log_and_write_pca(args, decoder, discriminator, encoder,
+    if args.wandb and (args.time_check or args.stop_patient):
+        decoder, discriminator, encoder, mapper, _ = log_and_write_pca(args, decoder, discriminator, encoder,
                                                                     i, inception_model_score, mapper, log_dict)
         
     save_models(args, decoder, encoder, mapper)
@@ -504,6 +538,10 @@ if __name__ == "__main__":
     parser.add_argument('--time_limit', type=int, default=0)
     parser.add_argument('--environment', type=str, default='yhs')
     parser.add_argument('--git_version', type=str, default='')
+    parser.add_argument('--logging_start', type=int, default=100)
+    parser.add_argument('--stop_by_fid', type=str2bool, default=False)
+    parser.add_argument('--stop_patient', type=int, default=3)              
+                        
     args = parser.parse_args()
     
     args.git_version = current_git_version_hash()
