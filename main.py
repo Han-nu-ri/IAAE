@@ -386,8 +386,29 @@ def check_fid_go_better(log_db, time=3) :
     print("check_fid_go_better : epoch=%d fid=%d is stil best case" % (best_epoch, best_fid))
     return True
     
-    
+def add_log_db(db_arr, epoch, log) : 
+  
+    save_log=(epoch, log['fid'], log['inception_score_fake'],
+                     log['precision'], log['recall'], log['density'], log['coverage'])
+    db_arr.append(save_log)
 
+
+def wandb_convergent_log(log) : 
+    log_db_tensor = torch.tensor(log)
+    # best fid indicies
+    best_epoch_indices = log_db_tensor[:,1].sort()[1][0]
+    # best metric 
+    best_metric = log[best_epoch_indices]
+    
+    wandb.log({'c_fid' : best_metric[1],
+               'c_is'  : best_metric[2],
+               'c_precision' : best_metric[3],
+               'c_recall' : best_metric[4],
+               'c_density': best_metric[5],
+               'c_coverage': best_metric[6]},
+              step=9999)
+    
+    
 
 def timeout(time_limit, start_time) : 
     # if time_limit < run_time, return True
@@ -481,8 +502,10 @@ def main(args):
         
             # stop_by_fid를 쓰고, fid 최저 점수를 time번에 걸쳐 갱신하지 못했으면 종료
             if log_result != {} :
-                log_db.append((i,log_result['fid']))
+                add_log_db(log_db, i, log_result)
                 if args.stop_by_fid and not check_fid_go_better(log_db, time=3) : 
+                    # 수렴 당시의 메트릭을 c_metricname 형식으로 wandb에 남기고 종료
+                    wandb_convergent_log(log_db)
                     break
             
             
