@@ -424,6 +424,8 @@ def main(args):
     train_loader, _ = data_helper.get_data(args.dataset, args.batch_size, args.image_size, args.environment)
     if args.wandb:
         wandb_name = "%s[%d_%d]_%s" % (args.dataset, args.image_size, args.latent_dim, args.model_name)
+        if args.stop_by_fid : 
+            wandb_name =  wandb_name+'(c)'
         wandb.login()
         wandb.init(project="AAE", config=args, name=wandb_name,  entity="aae_with_nonprior")
     inception_model_score = load_inception_model(args, train_loader)
